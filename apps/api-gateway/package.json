@@ -1,0 +1,25 @@
+{
+  "name": "@dpp/api-gateway",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "PORT=3000 tsx watch --env-file-if-exists=../../.env src/server.ts",
+    "start": "node dist/server.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dpp/config": "*",
+    "@dpp/contracts": "*",
+    "@dpp/observability": "*",
+    "@dpp/runtime": "*",
+    "@fastify/cors": "^11.3.0",
+    "@fastify/helmet": "^13.1.1",
+    "@fastify/reply-from": "^12.6.5",
+    "fastify": "^5.12.5",
+    "zod": "^4.6.5"
+  }
+}
