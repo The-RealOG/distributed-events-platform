@@ -1,0 +1,33 @@
+# Rendered by the nginx image's envsubst step at startup. API_ORIGIN is the gateway origin
+# the page may call (Content-Security-Policy connect-src).
+server {
+  listen 8080;
+  server_name _;
+  root /usr/share/nginx/html;
+  server_tokens off;
+
+  # Note: nginx does not inherit add_header into a location that sets its own, so each
+  # location lists its headers explicitly.
+
+  # Hashed build assets never change; everything else must be revalidated.
+  location /assets/ {
+    add_header Cache-Control "public, max-age=31536000, immutable";
+    add_header X-Content-Type-Options "nosniff" always;
+    try_files $uri =404;
+  }
+
+  # Client-side routing: unknown paths serve the app shell.
+  location / {
+    add_header Cache-Control "no-cache";
+    add_header Content-Security-Policy "default-src 'self'; connect-src 'self' ${API_ORIGIN}; img-src 'self' data:; style-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header X-Frame-Options "DENY" always;
+    try_files $uri /index.html;
+  }
+
+  location = /healthz {
+    access_log off;
+    return 200 "ok\n";
+  }
+}

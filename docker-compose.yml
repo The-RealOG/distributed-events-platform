@@ -1,0 +1,217 @@
+name: dpp
+
+# Local-only defaults. Every credential below can be overridden from the environment or .env;
+# none of them are used outside this Compose project.
+x-database-url: &database-url postgres://${POSTGRES_USER:-dpp}:${POSTGRES_PASSWORD:-dpp_local_only}@postgres:5432/${POSTGRES_DB:-dpp}
+
+x-project-service-build: &project-service-build
+  context: .
+  dockerfile: infrastructure/docker/node-service.Dockerfile
+  args:
+    APP: '@dpp/project-service'
+    APP_DIR: apps/project-service
+
+x-api-gateway-build: &api-gateway-build
+  context: .
+  dockerfile: infrastructure/docker/node-service.Dockerfile
+  args:
+    APP: '@dpp/api-gateway'
+    APP_DIR: apps/api-gateway
+
+x-outbox-publisher-build: &outbox-publisher-build
+  context: .
+  dockerfile: infrastructure/docker/node-service.Dockerfile
+  args:
+    APP: '@dpp/outbox-publisher'
+    APP_DIR: apps/outbox-publisher
+
+x-kafka-tools-build: &kafka-tools-build
+  context: .
+  dockerfile: infrastructure/docker/node-service.Dockerfile
+  args:
+    APP: '@dpp/kafka-tools'
+    APP_DIR: apps/kafka-tools
+
+# Topology: browser → web (8080) and api-gateway (3000) → project-service → postgres.
+# project-service publishes no host port: only the gateway can reach it.
+# Events: project-service writes them to the outbox table in the same transaction as the change;
+# outbox-publisher delivers them to Kafka. Nothing that serves requests depends on Kafka or on
+# the publisher (ADR-011).
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dpp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dpp_local_only}
+      POSTGRES_DB: ${POSTGRES_DB:-dpp}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot schema migration; services start only after it exits successfully.
+  migrate:
+    build: *project-service-build
+    image: dpp/project-service:local
+    command: ['node', '/app/packages/database/dist/migrate-cli.js']
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  project-service:
+    build: *project-service-build
+    image: dpp/project-service:local
+    environment:
+      PORT: 3001
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: *database-url
+      JWT_SECRET: ${JWT_SECRET:-local-development-only-jwt-secret-000}
+      AUTH_DEV_LOGIN_ENABLED: 'true'
+    expose:
+      - '3001'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3001/ready']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api-gateway:
+    build: *api-gateway-build
+    image: dpp/api-gateway:local
+    environment:
+      PORT: 3000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PROJECT_SERVICE_URL: http://project-service:3001
+      CORS_ORIGINS: http://localhost:8080,http://localhost:5173
+    ports:
+      - '3000:3000'
+    depends_on:
+      project-service:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/ready']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:3000/api
+        VITE_DEV_LOGIN_ENABLED: 'true'
+    image: dpp/web:local
+    environment:
+      API_ORIGIN: http://localhost:3000
+    ports:
+      - '8080:8080'
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/healthz']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Single-node KRaft broker (combined broker + controller; no ZooKeeper).
+  # Two client listeners, because clients connect to whatever address the broker advertises:
+  #   PLAINTEXT  kafka:9092      for containers on the Compose network
+  #   EXTERNAL   localhost:9094  for processes on the host (tests, dev tooling)
+  kafka:
+    image: apache/kafka:4.1.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # Fixed so the persisted log directory stays valid across container re-creation.
+      CLUSTER_ID: dpp-local-kraft-cluster1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      # One broker: internal topics cannot have more replicas than brokers.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Topics come only from kafka-init; a typo'd topic name fails loudly instead of
+      # silently creating a 1-partition topic.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+    ports:
+      - '9094:9094'
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      # A real metadata round-trip, not just "the JVM is running". The check launches a JVM
+      # tool, which took >30 s on a heavily loaded laptop, so it runs rarely with a long timeout.
+      test:
+        [
+          'CMD-SHELL',
+          '/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1',
+        ]
+      interval: 30s
+      timeout: 90s
+      retries: 10
+      start_period: 60s
+
+  # One-shot, idempotent topic creation/verification (domain.events ×3, domain.events.dlq ×1).
+  # Nothing in the request path waits for it: Kafka is not a dependency of serving traffic yet.
+  kafka-init:
+    build: *kafka-tools-build
+    image: dpp/kafka-tools:local
+    command: ['node', '--disable-warning=TimeoutNegativeWarning', 'dist/cli.js', 'init-topics']
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: kafka-init
+      LOG_LEVEL: info
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: 'no'
+
+  # PostgreSQL outbox → Kafka. Independent lifecycle and scaling; can run several replicas
+  # (each needs a distinct OUTBOX_WORKER_ID, which defaults to hostname-pid).
+  outbox-publisher:
+    build: *outbox-publisher-build
+    image: dpp/outbox-publisher:local
+    command: ['node', '--disable-warning=TimeoutNegativeWarning', 'dist/server.js']
+    environment:
+      PORT: 3002
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: *database-url
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: outbox-publisher
+    ports:
+      - '3002:3002'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      # Liveness only: /ready is 503 whenever Kafka is down, which is informative but should
+      # not make Compose (or ECS) kill a worker that will recover by itself.
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3002/health']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  kafka-data:
+  postgres-data:
