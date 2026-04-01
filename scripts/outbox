@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Outbox diagnostics against the Compose database (see apps/outbox-publisher/src/cli.ts).
+#   scripts/outbox status | pending | failing | recent [--limit N]
+#   scripts/outbox backlog --tasks 25        # creates events through the real API
+set -euo pipefail
+root="$(cd "$(dirname "$0")/.." && pwd)"
+cli="$root/apps/outbox-publisher/dist/cli.js"
+[[ -f "$cli" ]] || { echo "Build first: npm run build" >&2; exit 1; }
+exec node "$cli" "$@"
