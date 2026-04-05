@@ -1,0 +1,22 @@
+{
+  "name": "@dpp/kafka-tools",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "cli": "node --disable-warning=TimeoutNegativeWarning --env-file-if-exists=../../.env dist/cli.js"
+  },
+  "dependencies": {
+    "@dpp/config": "*",
+    "@dpp/contracts": "*",
+    "@dpp/kafka": "*",
+    "@dpp/observability": "*",
+    "@dpp/runtime": "*",
+    "kafkajs": "^2.2.4",
+    "pino": "^10.3.1",
+    "zod": "^4.6.5"
+  }
+}

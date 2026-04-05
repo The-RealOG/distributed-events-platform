@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Kafka developer tooling (see apps/kafka-tools/src/cli.ts). Talks to the Compose broker via
+# its host listener (localhost:9094) unless KAFKA_BROKERS is set.
+#
+#   scripts/kafka topics | groups | init-topics
+#   scripts/kafka produce-sample --type task.moved --correlation-id demo-1
+#   scripts/kafka produce-malformed --kind bad-schema-version
+#   scripts/kafka consume --group probe --from-beginning     (Ctrl-C leaves the group cleanly)
+#
+# `exec` matters: signals must reach node directly. Under `npm run`, npm exits on Ctrl-C and
+# kills the consumer before it can leave its group.
+set -euo pipefail
+root="$(cd "$(dirname "$0")/.." && pwd)"
+cli="$root/apps/kafka-tools/dist/cli.js"
+[[ -f "$cli" ]] || { echo "Build first: npm run build" >&2; exit 1; }
+exec node --disable-warning=TimeoutNegativeWarning "$cli" "$@"
