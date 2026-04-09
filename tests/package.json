@@ -1,0 +1,26 @@
+{
+  "name": "@dpp/system-tests",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "test:integration": "vitest run --config vitest.config.ts",
+    "test:e2e": "playwright test",
+    "test": "vitest run --config vitest.unit.config.ts",
+    "test:stack": "vitest run --config vitest.stack.config.ts"
+  },
+  "devDependencies": {
+    "@dpp/api-gateway": "*",
+    "@dpp/contracts": "*",
+    "@dpp/database": "*",
+    "@dpp/kafka": "*",
+    "@dpp/outbox-publisher": "*",
+    "@dpp/project-service": "*",
+    "@dpp/test-utils": "*",
+    "@playwright/test": "^1.63.0",
+    "pino": "^10.3.1",
+    "kafkajs": "^2.2.4"
+  }
+}
