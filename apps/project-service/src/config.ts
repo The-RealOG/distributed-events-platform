@@ -1,4 +1,4 @@
-import { baseEnvSchema, httpServerEnvSchema, loadConfig } from '@dpp/config';
+import { baseEnvSchema, httpServerEnvSchema, loadConfig, withDatabaseUrl } from '@dpp/config';
 import { z } from 'zod';
 
 const envSchema = baseEnvSchema.extend(httpServerEnvSchema.shape).extend({
@@ -21,5 +21,5 @@ export type ProjectServiceConfig = z.infer<typeof envSchema>;
 export function loadProjectServiceConfig(
   env: Record<string, string | undefined> = process.env,
 ): ProjectServiceConfig {
-  return loadConfig(envSchema, env);
+  return loadConfig(envSchema, withDatabaseUrl(env));
 }

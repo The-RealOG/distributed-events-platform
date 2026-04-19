@@ -1,5 +1,16 @@
-export { createKafkaClient, DEFAULT_RETRY, type KafkaClientOptions } from './client.js';
-export { kafkaEnvSchema, type KafkaEnv } from './config.js';
+export {
+  connectionConfig,
+  createKafkaClient,
+  DEFAULT_RETRY,
+  type IamTokenProvider,
+  type KafkaClientOptions,
+} from './client.js';
+export {
+  kafkaConnectionFromEnv,
+  kafkaEnvSchema,
+  type KafkaConnection,
+  type KafkaEnv,
+} from './config.js';
 export {
   DomainEventConsumer,
   type ConsumerHooks,

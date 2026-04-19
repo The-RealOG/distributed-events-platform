@@ -23,6 +23,11 @@ export interface DatabaseOptions {
    * Defaults to the statement timeout plus a margin, so the server's own timeout wins normally.
    */
   queryTimeoutMs?: number;
+  /**
+   * TLS with certificate verification against these CA certificates (PEM). Used for RDS, which
+   * enforces TLS. Omitted locally, where the Compose PostgreSQL has no TLS.
+   */
+  tlsCaPem?: string | undefined;
   /** Idle clients can error (e.g. server restart); unhandled, that would crash the process. */
   onPoolError?: (err: Error) => void;
 }
@@ -42,6 +47,7 @@ export function createDatabase(options: DatabaseOptions): DatabaseHandle {
     connectionTimeoutMillis: options.connectionTimeoutMs ?? 5_000,
     statement_timeout: options.statementTimeoutMs ?? 10_000,
     query_timeout: options.queryTimeoutMs ?? (options.statementTimeoutMs ?? 10_000) + 5_000,
+    ...(options.tlsCaPem ? { ssl: { ca: options.tlsCaPem, rejectUnauthorized: true } } : {}),
   });
   pool.on('error', (err) => options.onPoolError?.(err));
 

@@ -12,7 +12,8 @@ export {
   PG_FOREIGN_KEY_VIOLATION,
   PG_UNIQUE_VIOLATION,
 } from './errors.js';
-export { runMigrations, MIGRATIONS_FOLDER } from './migrate.js';
+export { runMigrations, MIGRATIONS_FOLDER, type MigrationOptions } from './migrate.js';
+export { databaseTlsCaFromEnv } from './tls.js';
 export {
   claimOutboxBatch,
   insertOutboxEvent,

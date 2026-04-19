@@ -8,6 +8,8 @@ import {
   DomainEventConsumer,
   DomainEventProducer,
   ensureTopics,
+  kafkaConnectionFromEnv,
+  kafkaEnvSchema,
   TOPICS,
 } from '@dpp/kafka';
 import { createLoggerOptions } from '@dpp/observability';
@@ -28,25 +30,23 @@ import { z } from 'zod';
  */
 
 const config = loadConfig(
-  baseEnvSchema.extend({
-    // Host default; containers set kafka:9092.
-    KAFKA_BROKERS: z
-      .string()
-      .default('localhost:9094')
-      .transform((v) => v.split(',').map((b) => b.trim())),
+  baseEnvSchema.extend(kafkaEnvSchema.shape).extend({
+    // Host default for the Compose broker; containers and AWS tasks set their own.
+    KAFKA_BROKERS: kafkaEnvSchema.shape.KAFKA_BROKERS.default(['localhost:9094']),
     KAFKA_CLIENT_ID: z.string().default('kafka-tools'),
+    // Replicas per partition for init-topics: 1 on the single local broker, 2 on 2-broker MSK.
+    KAFKA_REPLICATION_FACTOR: z.coerce.number().int().min(1).max(3).default(1),
     LOG_LEVEL: baseEnvSchema.shape.LOG_LEVEL.default('warn'),
   }),
 );
 
 const logger = pino(createLoggerOptions('kafka-tools', config.LOG_LEVEL));
 const out = (value: unknown) => process.stdout.write(`${JSON.stringify(value)}\n`);
-const kafka = createKafkaClient({
-  clientId: config.KAFKA_CLIENT_ID,
-  brokers: config.KAFKA_BROKERS,
-  logger,
-});
-const platformTopics = [TOPICS.domainEvents, TOPICS.domainEventsDlq];
+const kafka = createKafkaClient({ ...kafkaConnectionFromEnv(config), logger });
+const platformTopics = [TOPICS.domainEvents, TOPICS.domainEventsDlq].map((t) => ({
+  ...t,
+  replicationFactor: config.KAFKA_REPLICATION_FACTOR,
+}));
 
 async function withAdmin<T>(fn: (admin: ReturnType<Kafka['admin']>) => Promise<T>): Promise<T> {
   const admin = kafka.admin();
@@ -99,6 +99,73 @@ function sampleEvent(type: string, projectId: string, correlationId: string): Do
 }
 
 const commands: Record<string, (args: string[]) => Promise<void>> = {
+  /**
+   * End-to-end check of the Kafka path from wherever this runs (in AWS: an ECS task inside the
+   * VPC): produce a valid event, consume it back, verify identity, correlation and schema.
+   * Exits non-zero on any mismatch or after 90 s.
+   */
+  probe: async () => {
+    const correlationId = `probe-${randomUUID()}`;
+    const event = sampleEvent('task.moved', randomUUID(), correlationId);
+    interface Seen {
+      partition: number;
+      offset: string;
+      key: string | null;
+      eventId: string;
+      correlationId: string;
+    }
+    let resolveSeen!: (v: Seen) => void;
+    const seen = new Promise<Seen>((r) => (resolveSeen = r));
+    const consumer = new DomainEventConsumer({
+      kafka,
+      logger,
+      groupId: `probe-${randomUUID().slice(0, 8)}`,
+      topics: [TOPICS.domainEvents.name],
+      fromBeginning: false,
+      // The consumer validates envelope and payload (Zod) before calling this.
+      handler: async (received, m) => {
+        if (received.eventId === event.eventId) {
+          resolveSeen({
+            partition: m.partition,
+            offset: m.offset,
+            key: m.key,
+            eventId: received.eventId,
+            correlationId: received.correlationId,
+          });
+        }
+      },
+    });
+    const joined = consumer.nextGroupJoin();
+    await consumer.start();
+    await joined;
+    const producer = new DomainEventProducer({ kafka, logger });
+    await producer.connect();
+    const published = await producer.publish(event);
+    out({
+      step: 'published',
+      eventId: event.eventId,
+      correlationId,
+      partition: published.partition,
+      offset: published.offset,
+    });
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('probe timed out after 90 s')), 90_000),
+    );
+    try {
+      const got = await Promise.race([seen, timeout]);
+      const ok =
+        got.eventId === event.eventId &&
+        got.correlationId === correlationId &&
+        got.key === event.payload.projectId;
+      out({ step: 'consumed', ...got, schemaValid: true, identityMatches: ok });
+      if (!ok) throw new Error('consumed event does not match the published one');
+      out({ result: 'PROBE PASSED' });
+    } finally {
+      await producer.close();
+      await consumer.stop();
+    }
+  },
+
   'init-topics': async () => {
     const result = await withAdmin((admin) => ensureTopics(admin, platformTopics));
     out({ message: 'topics ready', ...result });

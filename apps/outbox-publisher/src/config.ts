@@ -1,5 +1,5 @@
 import { hostname } from 'node:os';
-import { baseEnvSchema, httpServerEnvSchema, loadConfig } from '@dpp/config';
+import { baseEnvSchema, httpServerEnvSchema, loadConfig, withDatabaseUrl } from '@dpp/config';
 import { kafkaEnvSchema } from '@dpp/kafka';
 import { z } from 'zod';
 
@@ -33,5 +33,5 @@ export type PublisherConfig = z.infer<typeof envSchema>;
 export function loadPublisherConfig(
   env: Record<string, string | undefined> = process.env,
 ): PublisherConfig {
-  return loadConfig(envSchema, env);
+  return loadConfig(envSchema, withDatabaseUrl(env));
 }

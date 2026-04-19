@@ -1,5 +1,5 @@
-import { createDatabase } from '@dpp/database';
-import { createKafkaClient, DomainEventProducer } from '@dpp/kafka';
+import { createDatabase, databaseTlsCaFromEnv } from '@dpp/database';
+import { createKafkaClient, DomainEventProducer, kafkaConnectionFromEnv } from '@dpp/kafka';
 import { createLoggerOptions } from '@dpp/observability';
 import { installGracefulShutdown } from '@dpp/runtime';
 import { pino } from 'pino';
@@ -14,13 +14,12 @@ const database = createDatabase({
   connectionString: config.DATABASE_URL,
   applicationName: SERVICE_NAME,
   maxConnections: config.DATABASE_POOL_MAX,
+  // RDS enforces TLS; the deployed image ships its CA bundle (unset locally).
+  tlsCaPem: databaseTlsCaFromEnv(),
   onPoolError: (err) => logger.error({ err }, 'idle database client error'),
 });
-const kafka = createKafkaClient({
-  clientId: config.KAFKA_CLIENT_ID,
-  brokers: config.KAFKA_BROKERS,
-  logger,
-});
+// Local plaintext broker or MSK with IAM auth, decided entirely by configuration.
+const kafka = createKafkaClient({ ...kafkaConnectionFromEnv(config), logger });
 
 const publisher = new OutboxPublisher({
   db: database.db,

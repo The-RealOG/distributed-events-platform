@@ -2,8 +2,10 @@ import { taskEvents } from '@dpp/contracts';
 import type { Admin } from 'kafkajs';
 import { describe, expect, it } from 'vitest';
 import {
+  connectionConfig,
   encodeDomainEvent,
   ensureTopics,
+  kafkaConnectionFromEnv,
   kafkaEnvSchema,
   partitionFor,
   TopicMismatchError,
@@ -128,6 +130,8 @@ describe('kafkaEnvSchema', () => {
     ).toEqual({
       KAFKA_BROKERS: ['kafka:9092', 'other:9093'],
       KAFKA_CLIENT_ID: 'x',
+      KAFKA_SSL: false,
+      KAFKA_AUTH: 'none',
     });
   });
 
@@ -138,5 +142,52 @@ describe('kafkaEnvSchema', () => {
     expect(kafkaEnvSchema.safeParse({ KAFKA_BROKERS: '', KAFKA_CLIENT_ID: 'x' }).success).toBe(
       false,
     );
+  });
+});
+
+describe('connection configuration (local vs MSK IAM)', () => {
+  const base = { KAFKA_BROKERS: ['b:9098'], KAFKA_CLIENT_ID: 'x' };
+
+  it('defaults to the local plaintext broker', () => {
+    const env = kafkaEnvSchema.parse({ KAFKA_BROKERS: 'localhost:9094', KAFKA_CLIENT_ID: 'x' });
+    const connection = kafkaConnectionFromEnv(env);
+    expect(connection).toMatchObject({ ssl: false, auth: { mechanism: 'none' } });
+    expect(connectionConfig(connection)).toEqual({});
+  });
+
+  it('uses TLS + SASL/OAUTHBEARER with a fresh IAM token per authentication', async () => {
+    const connection = kafkaConnectionFromEnv({
+      ...base,
+      KAFKA_SSL: true,
+      KAFKA_AUTH: 'aws-iam',
+      AWS_REGION: 'us-east-2',
+    });
+    const regions: string[] = [];
+    let n = 0;
+    const config = connectionConfig(connection, async (region) => {
+      regions.push(region);
+      return `token-${++n}`;
+    });
+    expect(config.ssl).toBe(true);
+    expect(config.sasl?.mechanism).toBe('oauthbearer');
+    const provider = (config.sasl as { oauthBearerProvider: () => Promise<{ value: string }> })
+      .oauthBearerProvider;
+    expect(await provider()).toEqual({ value: 'token-1' });
+    expect(await provider()).toEqual({ value: 'token-2' });
+    expect(regions).toEqual(['us-east-2', 'us-east-2']);
+  });
+
+  it('refuses IAM auth without TLS or a region', () => {
+    expect(() =>
+      kafkaConnectionFromEnv({
+        ...base,
+        KAFKA_SSL: false,
+        KAFKA_AUTH: 'aws-iam',
+        AWS_REGION: 'us-east-2',
+      }),
+    ).toThrow(/KAFKA_SSL/);
+    expect(() =>
+      kafkaConnectionFromEnv({ ...base, KAFKA_SSL: true, KAFKA_AUTH: 'aws-iam' }),
+    ).toThrow(/AWS_REGION/);
   });
 });

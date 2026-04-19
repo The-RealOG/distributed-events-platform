@@ -1,5 +1,5 @@
 import { LocalJwtAuthProvider } from '@dpp/auth';
-import { createDatabase } from '@dpp/database';
+import { createDatabase, databaseTlsCaFromEnv } from '@dpp/database';
 import { installGracefulShutdown } from '@dpp/runtime';
 import { buildApp, type AppState } from './app.js';
 import { loadProjectServiceConfig } from './config.js';
@@ -18,6 +18,8 @@ const database = createDatabase({
   connectionString: config.DATABASE_URL,
   applicationName: 'project-service',
   maxConnections: config.DATABASE_POOL_MAX,
+  // RDS enforces TLS; the deployed image ships its CA bundle (unset locally).
+  tlsCaPem: databaseTlsCaFromEnv(),
   onPoolError: (err) => app.log.error({ err }, 'idle database client error'),
 });
 
