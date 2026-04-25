@@ -1,0 +1,111 @@
+name: Deploy to AWS dev
+
+# Manual only, and only from main (the AWS role trusts nothing else). Builds images on the runner
+# (no local Docker needed), pushes them to ECR tagged with the commit SHA, publishes the web app,
+# then runs scripts/aws/rollout.sh: migrations → Kafka topics → rolling ECS update → smoke test.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # GitHub OIDC → AWS STS; no long-lived AWS keys anywhere
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-2
+  DPP_ENV: dev
+
+jobs:
+  images:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { image: project-service, app: '@dpp/project-service', dir: apps/project-service }
+          - { image: api-gateway, app: '@dpp/api-gateway', dir: apps/api-gateway }
+          - { image: outbox-publisher, app: '@dpp/outbox-publisher', dir: apps/outbox-publisher }
+          - { image: kafka-tools, app: '@dpp/kafka-tools', dir: apps/kafka-tools }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Resolve repository
+        id: repo
+        run: |
+          url=$(aws ssm get-parameter --name /dpp-dev/deploy-config --query Parameter.Value --output text \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["ecr"]["${{ matrix.image }}"])')
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          if aws ecr describe-images --repository-name "${url#*/}" --image-ids imageTag=${{ github.sha }} >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/setup-buildx-action@v3
+        if: steps.repo.outputs.exists != 'true'
+      - name: Build and push ${{ matrix.image }}:${{ github.sha }}
+        if: steps.repo.outputs.exists != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infrastructure/docker/node-service.Dockerfile
+          build-args: |
+            APP=${{ matrix.app }}
+            APP_DIR=${{ matrix.dir }}
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          tags: ${{ steps.repo.outputs.url }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  web:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - name: Build (API on the same origin, behind CloudFront /api/*)
+        run: npx turbo run build --filter=@dpp/web...
+        env:
+          VITE_API_BASE_URL: /api
+          VITE_DEV_LOGIN_ENABLED: 'true'
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Publish to S3 and invalidate CloudFront
+        run: |
+          cfg=$(aws ssm get-parameter --name /dpp-dev/deploy-config --query Parameter.Value --output text)
+          bucket=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["web_bucket"])' "$cfg")
+          dist=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["distribution_id"])' "$cfg")
+          # Hashed assets are immutable; index.html must always be revalidated.
+          aws s3 sync apps/web/dist/assets "s3://$bucket/assets" --cache-control "public,max-age=31536000,immutable" --delete
+          aws s3 cp apps/web/dist/index.html "s3://$bucket/index.html" --cache-control "no-cache"
+          aws cloudfront create-invalidation --distribution-id "$dist" --paths "/index.html" "/" --query Invalidation.Id --output text
+
+  rollout:
+    needs: [images, web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - run: scripts/aws/rollout.sh ${{ github.sha }}
+      - name: Smoke test through CloudFront → ALB → gateway → project-service → RDS
+        run: scripts/aws/smoke.sh

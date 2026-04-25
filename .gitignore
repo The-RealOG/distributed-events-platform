@@ -10,3 +10,10 @@ coverage/
 tests/load/results/
 tests/test-results/
 tests/playwright-report/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+infrastructure/terraform/**/local.auto.tfvars

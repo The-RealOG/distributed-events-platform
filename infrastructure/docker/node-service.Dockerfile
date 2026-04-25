@@ -45,6 +45,8 @@ ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=prod-deps --chown=node:node /app ./
 COPY --from=build --chown=node:node /deploy ./
+# Public CA bundle for TLS to Amazon RDS (used when DATABASE_TLS_CA_FILE points at it).
+COPY --chown=node:node infrastructure/certs/ /app/certs/
 USER node
 WORKDIR /app/${APP_DIR}
 # tini-less: Node is PID 1 but installs its own SIGTERM/SIGINT handlers in every service.

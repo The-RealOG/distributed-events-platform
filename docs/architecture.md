@@ -28,6 +28,18 @@ events to Kafka. Neither Kafka nor the publisher can make a request fail.
 The browser knows two origins: where the app is served from, and the gateway. It never learns
 internal service addresses. `project-service` publishes no host port in Compose.
 
+## Deployment targets
+
+The same images and configuration model run in two places:
+
+- **Local**: Docker Compose (this document's topology diagram). Reproducible, used by the
+  Playwright and Testcontainers suites.
+- **AWS dev**: ECS Fargate behind CloudFront + ALB, RDS PostgreSQL, MSK with IAM auth, S3 for the
+  SPA. See [aws-development.md](aws-development.md) and [ADR-012](adr/012-aws-development-runtime.md).
+
+Only configuration differs (database connection parts + TLS CA, Kafka TLS/IAM, service discovery
+name). No domain code knows which one it is running in.
+
 ## Source of truth
 
 PostgreSQL holds all authoritative state ([ADR-001](adr/001-postgresql-source-of-truth.md)).

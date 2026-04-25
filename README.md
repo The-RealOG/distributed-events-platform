@@ -11,21 +11,22 @@ uploads, and Prometheus/Grafana observability — all runnable locally with Dock
 
 ## Implementation status
 
-| Phase | Scope                                                                  | State       |
-| ----- | ---------------------------------------------------------------------- | ----------- |
-| 0     | Monorepo, TypeScript strict, lint/format, Vitest, config, Docker setup | Done        |
-| 1     | PostgreSQL schema, Project Service, JWT auth, optimistic concurrency   | Done        |
-| 2     | Frontend baseline + thin API Gateway                                   | Done        |
-| 3     | Kafka infrastructure and domain-event contracts (no publishing yet)    | Done        |
-| 4     | Transactional outbox + outbox publisher (PostgreSQL → Kafka)           | Done        |
-| 5     | Activity Service and idempotent consumers                              | Not started |
-| 6     | Realtime (WebSocket) Service                                           | Not started |
-| 7     | Redis cache-aside and distributed invalidation                         | Not started |
-| 8     | File Service and presigned uploads                                     | Not started |
-| 9     | Reliability: retries, DLQ, shutdown, readiness                         | Not started |
-| 10    | Observability: Prometheus, Grafana                                     | Not started |
-| 11    | Load testing (k6)                                                      | Not started |
-| 12    | CI, Docker hardening, Terraform skeleton                               | Not started |
+| Phase | Scope                                                                          | State       |
+| ----- | ------------------------------------------------------------------------------ | ----------- |
+| 0     | Monorepo, TypeScript strict, lint/format, Vitest, config, Docker setup         | Done        |
+| 1     | PostgreSQL schema, Project Service, JWT auth, optimistic concurrency           | Done        |
+| 2     | Frontend baseline + thin API Gateway                                           | Done        |
+| 3     | Kafka infrastructure and domain-event contracts (no publishing yet)            | Done        |
+| 4     | Transactional outbox + outbox publisher (PostgreSQL → Kafka)                   | Done        |
+| 3.5   | AWS dev environment (Terraform, ECS Fargate, RDS, MSK, CloudFront, OIDC CI/CD) | Done        |
+| 5     | Activity Service and idempotent consumers                                      | Not started |
+| 6     | Realtime (WebSocket) Service                                                   | Not started |
+| 7     | Redis cache-aside and distributed invalidation                                 | Not started |
+| 8     | File Service and presigned uploads                                             | Not started |
+| 9     | Reliability: retries, DLQ, shutdown, readiness                                 | Not started |
+| 10    | Observability: Prometheus, Grafana                                             | Not started |
+| 11    | Load testing (k6)                                                              | Not started |
+| 12    | CI, Docker hardening, Terraform skeleton                                       | Not started |
 
 ## Repository layout
 
@@ -65,6 +66,22 @@ docker-compose.yml     Local environment
 See [docs/architecture.md](docs/architecture.md) for the topology, the gateway, frontend
 server-state strategy, conflict UX, layering, authorization, the error model and the data model.
 
+## AWS development environment
+
+The platform also runs in AWS (`us-east-2`) so Docker Desktop can stay closed: RDS PostgreSQL,
+MSK (IAM auth), ECS Fargate services, CloudFront + S3 for the SPA, images built by GitHub Actions
+via OIDC. Everything is driven from the terminal. See
+[docs/aws-development.md](docs/aws-development.md) and
+[ADR-012](docs/adr/012-aws-development-runtime.md).
+
+```bash
+npm run aws:status     # what is running, where, which SHA
+npm run aws:deploy     # remote build + migrate + roll + smoke (no local Docker)
+npm run aws:logs -- project-service
+npm run aws:test       # cloud verification suite
+npm run aws:destroy    # tear it all down (confirmation required)
+```
+
 ## Quick start
 
 ```bash
@@ -86,7 +103,9 @@ npm install              # install all workspaces
 npm run build            # build every package (Turborepo, dependency-ordered)
 npm run lint             # ESLint (type-aware)
 npm run typecheck        # tsc --noEmit across workspaces
-npm run test             # unit tests (Vitest, no external dependencies)
+npm run test             # unit tests (Vitest, no external dependencies); alias: test:unit
+npm run test:docker      # Testcontainers integration tests (needs Docker; also run in CI)
+npm run test:aws         # cloud verification against the deployed dev environment
 npm run test:integration # integration tests; starts PostgreSQL and Kafka via Testcontainers (needs Docker)
 npm run test:e2e         # Playwright against the running stack (docker compose up first;
                          # first time: npx playwright install chromium)
