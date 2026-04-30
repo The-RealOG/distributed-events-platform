@@ -25,7 +25,7 @@ flowchart LR
     end
     subgraph data[data subnets · no internet route]
       rds[(RDS PostgreSQL 17<br/>db.t4g.micro · TLS)]
-      msk[(MSK 4.1 KRaft<br/>2 × kafka.t3.small · IAM auth)]
+      msk[(MSK 3.9<br/>2 × kafka.t3.small · IAM auth)]
     end
     s3web[(S3 web bucket<br/>private, OAC)]
     s3att[(S3 attachments<br/>private)]
@@ -91,6 +91,7 @@ npm run aws:test             # smoke, correlation in logs, Kafka probe, security
 | `npm run aws:exec -- <service> [cmd]`                        | shell into a running container (ECS Exec over SSM; no SSH)                                                   |
 | `npm run aws:db:tunnel`                                      | `localhost:15432` → RDS through a running task (SSM port forwarding)                                         |
 | `npm run aws:security-check`                                 | network-boundary probes from your Mac + configuration checks                                                 |
+| `npm run aws:audit`                                          | read-only audit of live AWS state (network, SGs, RDS, MSK, S3, ECR, IAM, logs, budget) + JSON inventory      |
 | `npm run aws:cost-info`                                      | what is running and its current on-demand rate (AWS Pricing API)                                             |
 | `npm run aws:rollout -- <sha>`                               | deploy (or roll back to) an already-built image SHA                                                          |
 | `npm run aws:destroy`                                        | tear down the environment (confirmation required)                                                            |

@@ -41,8 +41,10 @@ Prices from the AWS Pricing API, us-east-2, at decision time:
 | MSK provisioned `kafka.t3.small` | $0.0456 per broker-hour; 2 brokers = $0.0912/h      |
 
 Serverless costs about eight times as much for an idle dev cluster, so provisioned it is. Two
-brokers is the minimum for two AZs. T3 is AWS's recommended low-cost development size. Kafka 4.1
-(KRaft) matches the local broker.
+brokers is the minimum for two AZs. T3 is AWS's recommended low-cost development size. Kafka is
+**3.9.x** because MSK does not offer 4.x (KRaft) on `kafka.t3.small` ("Unsupported InstanceType" at
+create). The client features used (acks=all producer, consumer groups) behave the
+same as the local 4.1 broker.
 
 Authentication is **IAM only** (SASL/OAUTHBEARER on port 9098, TLS in transit, unauthenticated
 access disabled). KafkaJS gets tokens from AWS's official `aws-msk-iam-sasl-signer-js`, which uses
