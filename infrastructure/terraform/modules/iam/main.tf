@@ -15,7 +15,7 @@ variable "web_bucket_arn" { type = string }
 variable "distribution_arn" { type = string }
 variable "cluster_arn" { type = string }
 variable "ssm_parameter_arns" { type = list(string) }
-variable "github_repository" { type = string } # owner/name
+variable "github_oidc_subject_repository" { type = string } # as it appears in the OIDC sub claim
 variable "github_branch" { type = string }
 
 data "aws_iam_policy_document" "ecs_tasks_assume" {
@@ -154,7 +154,7 @@ data "aws_iam_policy_document" "github_assume" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:ref:refs/heads/${var.github_branch}"]
+      values   = ["repo:${var.github_oidc_subject_repository}:ref:refs/heads/${var.github_branch}"]
     }
   }
 }

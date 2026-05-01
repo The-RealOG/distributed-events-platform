@@ -127,18 +127,18 @@ module "edge" {
 }
 
 module "iam" {
-  source              = "../../modules/iam"
-  name                = local.name
-  region              = var.aws_region
-  account_id          = local.account_id
-  secret_arns         = [module.secrets.jwt_secret_arn, module.secrets.app_db_secret_arn, module.rds.master_secret_arn]
-  log_group_arns      = values(module.logs.log_group_arns)
-  msk_cluster_arn     = module.kafka.arn
-  ecr_repository_arns = values(module.ecr.repository_arns)
-  web_bucket_arn      = module.storage.web_bucket_arn
-  distribution_arn    = module.edge.distribution_arn
-  cluster_arn         = module.cluster.cluster_arn
-  ssm_parameter_arns  = [aws_ssm_parameter.image_tag.arn, aws_ssm_parameter.deploy_config.arn]
-  github_repository   = var.github_repository
-  github_branch       = "main"
+  source                         = "../../modules/iam"
+  name                           = local.name
+  region                         = var.aws_region
+  account_id                     = local.account_id
+  secret_arns                    = [module.secrets.jwt_secret_arn, module.secrets.app_db_secret_arn, module.rds.master_secret_arn]
+  log_group_arns                 = values(module.logs.log_group_arns)
+  msk_cluster_arn                = module.kafka.arn
+  ecr_repository_arns            = values(module.ecr.repository_arns)
+  web_bucket_arn                 = module.storage.web_bucket_arn
+  distribution_arn               = module.edge.distribution_arn
+  cluster_arn                    = module.cluster.cluster_arn
+  ssm_parameter_arns             = [aws_ssm_parameter.image_tag.arn, aws_ssm_parameter.deploy_config.arn]
+  github_oidc_subject_repository = var.github_oidc_subject_repository
+  github_branch                  = "main"
 }

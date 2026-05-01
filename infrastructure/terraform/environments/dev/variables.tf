@@ -20,7 +20,16 @@ variable "vpc_cidr" {
 variable "github_repository" {
   type        = string
   default     = "The-RealOG/distributed-events-platform"
-  description = "owner/name allowed to assume the deploy role (main branch only)"
+  description = "owner/name of the repository (tags, docs)"
+}
+
+variable "github_oidc_subject_repository" {
+  type = string
+  # GitHub's immutable subject format includes the owner and repository IDs
+  # (gh api repos/OWNER/REPO/actions/oidc/customization/sub → sub_claim_prefix). A renamed,
+  # deleted-and-recreated or transferred repository with the same name cannot match it.
+  default     = "The-RealOG@168302805/distributed-events-platform@1388724647"
+  description = "repository part of the GitHub OIDC sub claim allowed to assume the deploy role (main branch only)"
 }
 
 # The only value that must be provided by the developer (kept out of Git in local.auto.tfvars).

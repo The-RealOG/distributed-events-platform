@@ -103,7 +103,7 @@ To trace one request: take the `x-correlation-id` response header (or the smoke 
 ## Deployment
 
 `aws:deploy` requires a clean `main` that is pushed (the AWS role trusts only
-`repo:The-RealOG/distributed-events-platform:ref:refs/heads/main`). It starts the **Deploy to AWS
+`repo:The-RealOG@168302805/distributed-events-platform@1388724647:ref:refs/heads/main`, GitHub's immutable subject with owner and repository IDs). It starts the **Deploy to AWS
 dev** workflow and watches it:
 
 1. **images**: builds `project-service`, `api-gateway`, `outbox-publisher`, `kafka-tools` on the

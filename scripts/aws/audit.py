@@ -217,8 +217,8 @@ trust = gh["AssumeRolePolicyDocument"]["Statement"][0]
 cond = trust["Condition"]["StringEquals"]
 inv["github_oidc"] = {"provider": trust["Principal"]["Federated"].split("/")[-1], "aud": cond.get("token.actions.githubusercontent.com:aud"),
                       "sub": cond.get("token.actions.githubusercontent.com:sub")}
-check(cond.get("token.actions.githubusercontent.com:sub") == "repo:The-RealOG/distributed-events-platform:ref:refs/heads/main"
-      and cond.get("token.actions.githubusercontent.com:aud") == "sts.amazonaws.com", "GitHub OIDC trust: this repo's main branch only, audience sts.amazonaws.com")
+check(cond.get("token.actions.githubusercontent.com:sub") == "repo:The-RealOG@168302805/distributed-events-platform@1388724647:ref:refs/heads/main"
+      and cond.get("token.actions.githubusercontent.com:aud") == "sts.amazonaws.com", "GitHub OIDC trust: this repo (immutable owner/repo IDs), main branch only, audience sts.amazonaws.com")
 keys = aws("iam", "list-access-keys", "--user-name", "mycli")["AccessKeyMetadata"]
 note(f"IAM user mycli (developer CLI) has {len(keys)} access key(s); no keys were created by this phase")
 
