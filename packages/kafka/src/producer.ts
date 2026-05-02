@@ -72,11 +72,17 @@ export class DomainEventProducer {
     this.#state = 'connected';
   }
 
-  async publish(event: DomainEvent): Promise<PublishResult> {
+  /**
+   * `key` overrides the partition key derived from the event. The outbox publisher passes the
+   * key persisted with the row, so an event keeps the key it was written with even if the
+   * derivation (partitionKeyOf) changes between write and publish.
+   */
+  async publish(event: DomainEvent, options: { key?: string } = {}): Promise<PublishResult> {
     if (this.#state === 'closing' || this.#state === 'closed') throw new ProducerClosedError();
     // Never put an invalid event on the wire, even if the caller bypassed the factories.
     const valid = domainEventSchema.parse(event);
-    const message = encodeDomainEvent(valid);
+    const encoded = encodeDomainEvent(valid);
+    const message = options.key === undefined ? encoded : { ...encoded, key: options.key };
     const log = this.#logger.child({
       eventId: valid.eventId,
       eventType: valid.eventType,

@@ -72,6 +72,25 @@ describe('publication', () => {
     await publisher.stop();
   });
 
+  it('publishes under the partition key persisted with the row, never a re-derived one', async () => {
+    const topic = await createTopic(env.kafka);
+    const collector = await collectTopic(env, topic);
+    const event = projectEvent(randomUUID(), 1, 'corr-key');
+    await seed(env, [event]);
+    // Stand-in for a derivation that changed after the row was written: the row's key wins.
+    const persistedKey = `persisted-${randomUUID()}`;
+    await env.database.pool.query('UPDATE outbox_events SET partition_key = $1', [persistedKey]);
+
+    const publisher = newPublisher(env, sinkFor(env, topic));
+    await drain(publisher);
+
+    await collector.waitForCount(1);
+    expect(collector.received[0]!.metadata.key).toBe(persistedKey);
+    expect(collector.received[0]!.event).toEqual(event);
+    await collector.stop();
+    await publisher.stop();
+  });
+
   it('Invariant 10: publishes each project’s events in outbox order, without a global order', async () => {
     const topic = await createTopic(env.kafka);
     const collector = await collectTopic(env, topic);
@@ -269,8 +288,8 @@ describe('Invariant 6 (end to end): two healthy publishers drain one outbox with
       return {
         connect: () => inner.connect(),
         close: (o) => inner.close(o),
-        publish: async (event): Promise<PublishResult> => {
-          const r = await inner.publish(event);
+        publish: async (event, options): Promise<PublishResult> => {
+          const r = await inner.publish(event, options);
           published.set(name, (published.get(name) ?? 0) + 1);
           return r;
         },

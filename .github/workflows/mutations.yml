@@ -1,0 +1,43 @@
+name: Deliberate breaks
+
+# Proves the delivery-guarantee tests catch the bugs they exist for: each job applies one
+# mutation from scripts/mutations/mutations.mjs and passes only if the targeted real
+# PostgreSQL/Kafka tests then FAIL (the baseline job: only if they pass). Manual; not on PRs.
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: 'Phase whose mutations to run (empty = all)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    outputs:
+      ids: ${{ steps.ids.outputs.ids }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: ids
+        run: echo "ids=$(node scripts/mutations/run.mjs --list '${{ inputs.phase }}')" >> "$GITHUB_OUTPUT"
+
+  mutation:
+    needs: list
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        id: ${{ fromJson(needs.list.outputs.ids) }}
+    name: ${{ matrix.id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: node scripts/mutations/run.mjs ${{ matrix.id }}

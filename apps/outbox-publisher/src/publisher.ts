@@ -17,7 +17,7 @@ import { classifyPublishFailure } from './classify.js';
 /** The part of DomainEventProducer the publisher uses (a real producer in production). */
 export interface EventSink {
   connect(): Promise<void>;
-  publish(event: DomainEvent): Promise<PublishResult>;
+  publish(event: DomainEvent, options?: { key?: string }): Promise<PublishResult>;
   close(options?: { drainTimeoutMs?: number; disconnectTimeoutMs?: number }): Promise<void>;
 }
 
@@ -179,9 +179,9 @@ export class OutboxPublisher {
 
       let published: PublishResult;
       try {
-        // The stored event, byte-for-byte as built in the original transaction: same eventId
-        // on every attempt.
-        published = await this.#o.sink.publish(row.event);
+        // The stored event, byte-for-byte as built in the original transaction (same eventId on
+        // every attempt), under the partition key stored with it.
+        published = await this.#o.sink.publish(row.event, { key: row.partitionKey });
       } catch (err) {
         const attempt = row.attemptCount + 1;
         const retryAfterMs = computeBackoffMs(attempt, this.#o.backoff, this.#o.random);

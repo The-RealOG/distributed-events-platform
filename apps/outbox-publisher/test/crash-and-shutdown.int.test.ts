@@ -137,10 +137,10 @@ describe('graceful shutdown', () => {
     const gated: EventSink = {
       connect: () => inner.connect(),
       close: (o) => inner.close(o),
-      publish: async (event) => {
+      publish: async (event, options) => {
         inFlight = true;
         await sendGate;
-        return inner.publish(event);
+        return inner.publish(event, options);
       },
     };
     const first = newPublisher(env, gated, { batchSize: 5 });
