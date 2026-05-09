@@ -7,9 +7,9 @@ source "$(dirname "$0")/lib.sh"
 require_aws_auth
 deploy_config >/dev/null 2>&1 || { info "environment not provisioned: only the state bucket (S3 storage, cents/month)"; exit 0; }
 cluster="$(cfg 'c["cluster"]')"
-python3 - "$AWS_REGION" "$cluster" "$(cfg 'c["msk_cluster"]')" "$(cfg 'c["rds"]["identifier"]')" "$NAME_PREFIX" <<'PY'
+python3 - "$AWS_REGION" "$cluster" "$(cfg 'c["msk_cluster"]')" "$(cfg 'c["rds"]["identifier"]')" "$NAME_PREFIX" "$(cfg 'c["task_subnets"][0]')" <<'PY'
 import json, subprocess, sys
-region, cluster, msk, rds_id, prefix = sys.argv[1:]
+region, cluster, msk, rds_id, prefix, task_subnet = sys.argv[1:]
 LOC = {"us-east-2": "US East (Ohio)", "us-east-1": "US East (N. Virginia)"}.get(region, region)
 def aws(*a):
     return json.loads(subprocess.check_output(["aws", *a, "--output", "json"], text=True) or "null")
@@ -40,14 +40,18 @@ vcpu = mem = 0.0
 if tasks:
     for t in aws("ecs", "describe-tasks", "--cluster", cluster, "--tasks", *tasks)["tasks"]:
         vcpu += int(t["cpu"]) / 1024; mem += int(t["memory"]) / 1024
-rv, _ = rate("AmazonECS", "Fargate vCPU-hours", "Type=TERM_MATCH,Field=productFamily,Value=Compute")
-rm, _ = rate("AmazonECS", "Fargate GB-hours", "Type=TERM_MATCH,Field=productFamily,Value=Compute")
+# Matched by usage type: the descriptions ("AWS Fargate - vCPU - US East 2 (Ohio)") carry no unit.
+rv, _ = rate("AmazonECS", "Fargate - vCPU", "Type=TERM_MATCH,Field=usagetype,Value=USE2-Fargate-vCPU-Hours:perCPU")
+rm, _ = rate("AmazonECS", "Fargate - Memory", "Type=TERM_MATCH,Field=usagetype,Value=USE2-Fargate-GB-Hours")
 rows.append(("Fargate tasks", f"{len(tasks)} running: {vcpu:g} vCPU, {mem:g} GB", rv and f"${rv:.5f}/vCPU-h, ${rm:.5f}/GB-h", "scale services to 0 to stop"))
-enis = aws("ec2", "describe-network-interfaces", "--filters", "Name=tag:aws:ecs:clusterName,Values=" + cluster)["NetworkInterfaces"]
-albenis = aws("ec2", "describe-network-interfaces", "--filters", f"Name=description,Values=ELB app/{prefix}/*")["NetworkInterfaces"]
-public = sum(1 for e in enis + albenis if e.get("Association", {}).get("PublicIp"))
+# Every public IPv4 in the VPC bills (task ENIs carry no cluster tag, so count by VPC).
+vpc = aws("ec2", "describe-subnets", "--subnet-ids", task_subnet)["Subnets"][0]["VpcId"]
+enis = aws("ec2", "describe-network-interfaces", "--filters", f"Name=vpc-id,Values={vpc}")["NetworkInterfaces"]
+public_enis = [e for e in enis if e.get("Association", {}).get("PublicIp")]
+alb_ips = sum(1 for e in public_enis if e.get("Description", "").startswith("ELB "))
+public = len(public_enis)
 r, u = rate("AmazonVPC", "in-use public IPv4", "Type=TERM_MATCH,Field=group,Value=VPCPublicIPv4Address")
-rows.append(("Public IPv4 addresses", f"{public} (ALB + tasks; replaces a NAT gateway)", r and f"${r:.4f}/{u} each", "follow task/ALB lifetime"))
+rows.append(("Public IPv4 addresses", f"{public} ({alb_ips} ALB, {public - alb_ips} tasks; instead of a NAT gateway)", r and f"${r:.4f}/{u} each", "follow task/ALB lifetime"))
 secrets = aws("secretsmanager", "list-secrets", "--filters", f"Key=name,Values={prefix}")["SecretList"]
 rows.append(("Secrets Manager", f"{len(secrets)} secrets (+ RDS-managed master secret)", "$0.40/secret-month (published rate)", "deleted immediately on destroy"))
 rows.append(("CloudFront, S3, ECR, CloudWatch Logs, Cloud Map", "usage-based", "per request / GB", "small at dev volumes; logs expire after 7 days"))

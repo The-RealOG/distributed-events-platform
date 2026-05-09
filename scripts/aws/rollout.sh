@@ -25,16 +25,21 @@ for key in project-service api-gateway outbox-publisher migrate kafka-tools; do
   aws ecr describe-images --repository-name "${repo#*/}" --image-ids imageTag="$sha" >/dev/null 2>&1 ||
     die "image ${repo#*/}:$sha not found in ECR (build it first: npm run aws:deploy)"
   # Take the latest revision (Terraform's configuration) and change only the image.
-  aws ecs describe-task-definition --task-definition "$family" --query taskDefinition --output json |
+  # --include TAGS: carry Terraform's tags over, so the revision matches Terraform's (no drift).
+  aws ecs describe-task-definition --task-definition "$family" --include TAGS --output json |
     python3 -c '
 import json, sys
-td = json.load(sys.stdin)
+described = json.load(sys.stdin)
+td = described["taskDefinition"]
+if described.get("tags"):
+    td["tags"] = described["tags"]
 for k in ["taskDefinitionArn","revision","status","requiresAttributes","compatibilities","registeredAt","registeredBy","deregisteredAt"]:
     td.pop(k, None)
 td["containerDefinitions"][0]["image"] = sys.argv[1]
 print(json.dumps(td))' "${repo}:${sha}" > "/tmp/dpp-td-${key}.json"
   arn="$(aws ecs register-task-definition --cli-input-json "file:///tmp/dpp-td-${key}.json" --query taskDefinition.taskDefinitionArn --output text)"
   rm -f "/tmp/dpp-td-${key}.json"
+  printf -v "arn_${key//-/_}" '%s' "$arn" # bash 3.2 (macOS) has no associative arrays
   info "registered ${arn##*/}"
 done
 
@@ -43,16 +48,31 @@ run_task kafka-tools
 
 for service in project-service api-gateway outbox-publisher; do
   family="$(cfg "c['families']['$service']")"
-  aws ecs update-service --cluster "$cluster" --service "$service" --task-definition "$family" \
+  arn_var="arn_${service//-/_}"
+  aws ecs update-service --cluster "$cluster" --service "$service" --task-definition "${!arn_var}" \
     --desired-count 1 --query 'service.serviceName' --output text >/dev/null
   info "rolling $service → $family (latest)"
 done
 info "waiting for services to become stable (failed rollouts roll back automatically)"
 aws ecs wait services-stable --cluster "$cluster" --services project-service api-gateway outbox-publisher ||
   die "services did not stabilize; inspect with: npm run aws:status"
+# "Stable" (running == desired) can precede ECS marking the deployment COMPLETED, and after a
+# circuit-breaker rollback the primary deployment is the OLD revision, also COMPLETED. So wait
+# for the deployment of the revision registered above to reach COMPLETED; fail on FAILED or if
+# that revision is no longer the primary deployment.
 for service in project-service api-gateway outbox-publisher; do
-  state="$(aws ecs describe-services --cluster "$cluster" --services "$service" --query 'services[0].deployments[0].rolloutState' --output text)"
-  [[ "$state" == "COMPLETED" ]] || die "$service rollout state: $state (rolled back?)"
+  arn_var="arn_${service//-/_}"
+  deadline=$((SECONDS + 600))
+  while :; do
+    read -r primary state <<<"$(aws ecs describe-services --cluster "$cluster" --services "$service" \
+      --query 'services[0].deployments[?status==`PRIMARY`] | [0].[taskDefinition,rolloutState]' --output text)"
+    [[ "$primary" == "${!arn_var}" ]] || die "$service: primary deployment is ${primary##*/}, not ${!arn_var##*/} (rolled back)"
+    [[ "$state" == "COMPLETED" ]] && break
+    [[ "$state" == "FAILED" ]] && die "$service rollout FAILED (circuit breaker)"
+    ((SECONDS < deadline)) || die "$service rollout still $state after 10 minutes"
+    sleep 10
+  done
+  info "$service: ${primary##*/} COMPLETED"
 done
 aws ssm put-parameter --name "/${NAME_PREFIX}/image-tag" --value "$sha" --overwrite >/dev/null
 info "deployed $sha: $(cfg 'c["app_url"]')"

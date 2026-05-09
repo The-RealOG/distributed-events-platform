@@ -79,7 +79,13 @@ variable "capacity_provider" {
 }
 
 resource "aws_ecs_task_definition" "this" {
-  family                   = var.name
+  family = var.name
+  # Deploys (scripts/aws/rollout.sh) register revisions that copy this configuration and change
+  # only the image to the SHA recorded in SSM, which is also the image Terraform renders. Tracking
+  # the latest ACTIVE revision makes Terraform compare against that deployed revision instead of
+  # the one it created, so a deploy leaves no drift, while a real configuration change still
+  # registers a new revision.
+  track_latest             = true
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = var.cpu

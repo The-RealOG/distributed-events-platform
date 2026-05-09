@@ -16,9 +16,11 @@ logged_in() { # <service> <text>: waits (≤90 s) until the text appears in the 
   group="$(cfg "c['log_groups']['$1']")"
   deadline=$((SECONDS + 90))
   while ((SECONDS < deadline)); do
+    # The CLI paginates and prints one count per page ("0\n3\n0"): sum them.
     n="$(aws logs filter-log-events --log-group-name "$group" --start-time $(( ($(date +%s) - 900) * 1000 )) \
-      --filter-pattern "\"$2\"" --query 'length(events)' --output text 2>/dev/null || echo 0)"
-    [[ "$n" != "0" && "$n" != "None" ]] && { echo "$n"; return 0; }
+      --filter-pattern "\"$2\"" --query 'length(events)' --output text 2>/dev/null |
+      awk '$1 ~ /^[0-9]+$/ { s += $1 } END { print s + 0 }')"
+    ((n > 0)) && { echo "$n"; return 0; }
     sleep 5
   done
   echo 0; return 1

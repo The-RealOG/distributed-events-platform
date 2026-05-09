@@ -186,6 +186,18 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = ["*"]
   }
   statement {
+    # Rollout copies Terraform's tags onto the revisions it registers (no drift). Only this
+    # environment's families, and only while registering them.
+    sid       = "TagTaskDefinitionsOnRegister"
+    actions   = ["ecs:TagResource"]
+    resources = ["arn:aws:ecs:*:*:task-definition/${var.name}-*:*"]
+    condition {
+      test     = "StringEquals"
+      variable = "ecs:CreateAction"
+      values   = ["RegisterTaskDefinition"]
+    }
+  }
+  statement {
     sid       = "RollServicesAndRunJobs"
     actions   = ["ecs:UpdateService", "ecs:DescribeServices", "ecs:RunTask", "ecs:DescribeTasks", "ecs:ListTasks"]
     resources = ["*"]
