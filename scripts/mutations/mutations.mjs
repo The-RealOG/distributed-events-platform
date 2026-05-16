@@ -16,6 +16,30 @@ const PUBLISH_CALL =
   'published = await this.#o.sink.publish(row.event, { key: row.partitionKey });';
 const LEASE_CHECK = 'AND (c.claimed_until IS NULL OR c.claimed_until < now())';
 
+// Phase 5 (idempotent consumption)
+const IDEM = 'packages/database/src/idempotency.ts';
+const SYS = { cwd: 'tests', config: 'vitest.config.ts' };
+const IDEM_TESTS = [{ ...SYS, files: ['integration/idempotent-consumer.int.test.ts'] }];
+const BT = '`';
+const MARKER_INSERT = [
+  `INSERT INTO processed_events (consumer_name, event_id, event_type)`,
+  '      VALUES (${consumerName}, ${input.event.eventId}, ${input.event.eventType})',
+  '      ON CONFLICT (consumer_name, event_id) DO NOTHING',
+].join('\n');
+const MARKER_EXISTS =
+  'SELECT 1 FROM processed_events WHERE consumer_name = ${consumerName} AND event_id = ${input.event.eventId}';
+const CLAIM_BLOCK = [
+  '  return db.transaction(async (tx) => {',
+  `    const claimed = await tx.execute(sql${BT}`,
+  `      ${MARKER_INSERT}`,
+  '      RETURNING 1',
+  `    ${BT});`,
+  "    if (claimed.rows.length === 0) return 'duplicate';",
+  '    await work(tx);',
+  "    return 'processed';",
+  '  });',
+].join('\n');
+
 export const mutations = [
   {
     id: 'p4-baseline',
@@ -199,5 +223,138 @@ export const mutations = [
     tests: [
       { ...PUB, files: ['test/publisher.int.test.ts', 'test/crash-and-shutdown.int.test.ts'] },
     ],
+  },
+  {
+    id: 'p5-baseline',
+    phase: 5,
+    title: 'no mutation: the idempotent-consumer suite passes',
+    edits: [],
+    tests: IDEM_TESTS,
+    expect: 'pass',
+  },
+  {
+    id: 'p5-01-unique-constraint-removed',
+    phase: 5,
+    title: 'processed_events without its (consumer_name, event_id) key',
+    edits: [
+      {
+        file: 'packages/database/migrations/0002_processed_events.sql',
+        find: '\tCONSTRAINT "processed_events_pkey" PRIMARY KEY("consumer_name","event_id"),\n',
+        replace: '',
+      },
+    ],
+    tests: IDEM_TESTS,
+  },
+  {
+    id: 'p5-02-random-instance-identity',
+    phase: 5,
+    title: 'each handler instance (replica/process) gets its own random consumer identity',
+    edits: [
+      {
+        file: IDEM,
+        find: 'const consumerName = assertConsumerName(options.consumerName);',
+        replace:
+          'const consumerName = assertConsumerName(`${options.consumerName}-${crypto.randomUUID().slice(0, 8)}`);',
+      },
+    ],
+    tests: IDEM_TESTS,
+  },
+  {
+    id: 'p5-03-marker-committed-before-side-effect',
+    phase: 5,
+    title: 'marker inserted and committed on its own, then the side effect in a later transaction',
+    edits: [
+      {
+        file: IDEM,
+        find: CLAIM_BLOCK,
+        replace: [
+          `  const claimed = await db.execute(sql${BT}${MARKER_INSERT} RETURNING 1${BT});`,
+          "  if (claimed.rows.length === 0) return 'duplicate';",
+          "  return db.transaction(async (tx) => { await work(tx); return 'processed' as const; });",
+        ].join('\n'),
+      },
+    ],
+    tests: IDEM_TESTS,
+  },
+  {
+    id: 'p5-04-marker-outside-side-effect-transaction',
+    phase: 5,
+    title: 'check marker, commit the side effect, then insert the marker separately',
+    edits: [
+      {
+        file: IDEM,
+        find: CLAIM_BLOCK,
+        replace: [
+          `  const done = await db.execute(sql${BT}${MARKER_EXISTS}${BT});`,
+          "  if (done.rows.length > 0) return 'duplicate';",
+          '  await db.transaction(async (tx) => { await work(tx); });',
+          `  await db.execute(sql${BT}${MARKER_INSERT}${BT});`,
+          "  return 'processed';",
+        ].join('\n'),
+      },
+    ],
+    tests: IDEM_TESTS,
+  },
+  {
+    id: 'p5-05-offset-committed-before-processing',
+    phase: 5,
+    title: 'consumer commits the Kafka offset before the handler (and its DB transaction) runs',
+    edits: [
+      {
+        file: 'packages/kafka/src/consumer.ts',
+        find: '    const started = performance.now();\n    try {\n      await this.#options.handler(event, metadata);',
+        replace:
+          '    await this.#consumer.commitOffsets([{ topic, partition, offset: (BigInt(message.offset) + 1n).toString() }]);\n    const started = performance.now();\n    try {\n      await this.#options.handler(event, metadata);',
+      },
+    ],
+    tests: IDEM_TESTS,
+  },
+  {
+    id: 'p5-06-check-then-act-race',
+    phase: 5,
+    title: 'SELECT marker, run side effect, INSERT marker ON CONFLICT DO NOTHING (race ignored)',
+    edits: [
+      {
+        file: IDEM,
+        find: CLAIM_BLOCK,
+        replace: [
+          '  return db.transaction(async (tx) => {',
+          `    const done = await tx.execute(sql${BT}${MARKER_EXISTS}${BT});`,
+          "    if (done.rows.length > 0) return 'duplicate';",
+          '    await work(tx);',
+          `    await tx.execute(sql${BT}${MARKER_INSERT}${BT});`,
+          "    return 'processed';",
+          '  });',
+        ].join('\n'),
+      },
+    ],
+    tests: IDEM_TESTS,
+  },
+  {
+    id: 'p5-07-global-dedupe-across-consumers',
+    phase: 5,
+    title: 'an event processed by any consumer counts as processed for all',
+    edits: [
+      {
+        file: IDEM,
+        find: '      VALUES (${consumerName}, ${input.event.eventId}, ${input.event.eventType})',
+        replace:
+          '      SELECT ${consumerName}, ${input.event.eventId}::uuid, ${input.event.eventType}\n      WHERE NOT EXISTS (SELECT 1 FROM processed_events WHERE event_id = ${input.event.eventId}::uuid)',
+      },
+    ],
+    tests: IDEM_TESTS,
+  },
+  {
+    id: 'p5-08-marker-kept-after-handler-failure',
+    phase: 5,
+    title: 'handler errors are swallowed, so the marker commits although the work failed',
+    edits: [
+      {
+        file: IDEM,
+        find: "    await work(tx);\n    return 'processed';",
+        replace: "    await work(tx).catch(() => undefined);\n    return 'processed';",
+      },
+    ],
+    tests: IDEM_TESTS,
   },
 ];

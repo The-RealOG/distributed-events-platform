@@ -56,8 +56,10 @@ export interface DomainEventConsumerOptions {
  * DLQ (Phase 9).
  *
  * Handler failures are different: the error is logged and rethrown, the offset is not
- * committed, and KafkaJS retries the message. Bounded retries plus a DLQ for these arrive in
- * Phase 9; until then only probe handlers that don't throw use this consumer.
+ * committed, and KafkaJS retries the message (and, when its retries are exhausted, restarts the
+ * consumer from the last committed offset). Handlers with side effects wrap them with
+ * createIdempotentHandler (@dpp/database, ADR-013) so these redeliveries are harmless. Bounded
+ * retries plus a DLQ for poison messages arrive in Phase 9.
  */
 export class DomainEventConsumer {
   readonly #consumer: Consumer;

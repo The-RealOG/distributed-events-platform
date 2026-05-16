@@ -27,3 +27,17 @@ export {
   type DbTransaction,
   type OutboxStatus,
 } from './outbox.js';
+export {
+  assertConsumerName,
+  CONSUMER_NAME,
+  createIdempotentHandler,
+  isEventProcessed,
+  processEventOnce,
+  type ConsumerLogger,
+  type ConsumerOutcome,
+  type DeliveryMetadata,
+  type IdempotentHandlerOptions,
+  type ProcessOutcome,
+} from './idempotency.js';
+// Consumers write their side effects with the transaction handle and this tag.
+export { sql } from 'drizzle-orm';

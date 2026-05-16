@@ -15,6 +15,13 @@
       "when": 1790372352690,
       "tag": "0001_transactional_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790410493789,
+      "tag": "0002_processed_events",
+      "breakpoints": true
     }
   ]
 }

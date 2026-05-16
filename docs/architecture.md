@@ -1,10 +1,11 @@
 # Architecture
 
 > This document tracks the implementation as it stands. Sections are added as phases land.
-> Current state: **Phase 4**. The pieces are a React frontend, an API Gateway, the Project
+> Current state: **Phase 5**. The pieces are a React frontend, an API Gateway, the Project
 > Service (PostgreSQL), and the Outbox Publisher, which delivers domain events to Kafka through a
-> transactional outbox. Consumers other than probes arrive in Phase 5. No Redis, WebSockets
-> or object storage yet.
+> transactional outbox. Consumers apply events idempotently through `processed_events`
+> (ADR-013). No business consumer is deployed yet (the Activity Service is Phase 6). No Redis,
+> WebSockets or object storage yet.
 
 ## Topology
 
@@ -360,7 +361,7 @@ browser flow works with the broker stopped (`tests/e2e/kafka-independence.spec.t
 
 ```ts
 {
-  eventId: uuid,            // unique per occurrence; the consumer idempotency key (Phase 5)
+  eventId: uuid,            // unique per occurrence; the consumer idempotency key (ADR-013)
   eventType: 'task.created' | 'task.updated' | 'task.moved' | 'task.deleted'
            | 'task.assigned' | 'task.unassigned' | 'comment.created',
   aggregateType: 'task' | 'comment',
@@ -413,9 +414,43 @@ partition, offset, key}`. Any failure rejects with `PublishError`, and nothing i
 - Every message is decoded and validated. The handler receives the typed event plus
   `{topic, partition, offset, key, headers, consumerGroup}`.
 - Offsets: KafkaJS auto-commit. Marked after the handler resolves, committed per batch.
-  **At-least-once: duplicates are possible and expected** until Phase 5 adds idempotency.
+  **At-least-once: duplicates are possible and expected.** Handlers with side effects wrap them
+  in `createIdempotentHandler` (next section).
 - `stop()` stops fetching, waits for the in-flight handler, commits and leaves the group. It is
   bounded (default 10 s). Observed: about 5 s, the length of the fetch long-poll.
+
+### Idempotent consumption (Phase 5)
+
+Decision record: [ADR-013](adr/013-idempotent-consumers.md). A logical consumer (stable name,
+shared by its replicas; also its consumer group) records `(consumer_name, event_id)` in
+`processed_events` in the same transaction as its side effects. The INSERT is the claim:
+`ON CONFLICT DO NOTHING` returns nothing for an event already processed, and a concurrent
+duplicate waits on the first transaction's uncommitted key. The handler resolves only after
+COMMIT, so the database commit always precedes the Kafka offset commit.
+
+| Situation                            | Outcome                                                  |
+| ------------------------------------ | -------------------------------------------------------- |
+| Same event delivered twice           | second delivery → `duplicate`, side effect once          |
+| DB committed, offset commit lost     | redelivery → `duplicate`, side effect once               |
+| Crash or handler error before COMMIT | nothing persisted; redelivery → `processed`              |
+| Two replicas, same event, same time  | one `processed`, one `duplicate` (unique key serializes) |
+| Two logical consumers                | each `processed` once, two markers                       |
+| Malformed message                    | skipped before the handler; no marker                    |
+
+```ts
+const handler = createIdempotentHandler({
+  db,
+  consumerName: 'activity-service',
+  logger,
+  handle: async (event, tx) => {
+    /* write side effects with tx only */
+  },
+  onOutcome: (outcome) => {
+    /* processed | duplicate | failed → metrics later */
+  },
+});
+new DomainEventConsumer({ kafka, logger, groupId: 'activity-service', topics, handler });
+```
 
 ### Malformed-message policy
 

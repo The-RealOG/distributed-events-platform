@@ -226,3 +226,32 @@ export const outboxEvents = pgTable(
     check('outbox_events_attempt_count_nonnegative', sql`${t.attemptCount} >= 0`),
   ],
 );
+
+/**
+ * Idempotent consumption (ADR-013). A row means: this logical consumer's side effects for this
+ * event have committed. It is written in the same transaction as those side effects, so the
+ * marker and the effects exist together or not at all.
+ *
+ * Unique per (consumer, event), not per event: activity-service and cache-invalidator each
+ * process every event once. `consumerName` is the stable logical name shared by all replicas
+ * (never a host or process ID), and it doubles as the Kafka consumer group.
+ *
+ * Grows by one row per event per consumer; see ADR-013 for retention.
+ */
+export const processedEvents = pgTable(
+  'processed_events',
+  {
+    consumerName: text('consumer_name').notNull(),
+    eventId: uuid('event_id').notNull(),
+    // Diagnostics only (what was processed, and when).
+    eventType: text('event_type').notNull(),
+    processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ name: 'processed_events_pkey', columns: [t.consumerName, t.eventId] }),
+    check(
+      'processed_events_consumer_name_format',
+      sql`${t.consumerName} ~ '^[a-z][a-z0-9-]{1,62}$'`,
+    ),
+  ],
+);
