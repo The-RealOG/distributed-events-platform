@@ -50,6 +50,13 @@ export function createDatabase(options: DatabaseOptions): DatabaseHandle {
     ...(options.tlsCaPem ? { ssl: { ca: options.tlsCaPem, rejectUnauthorized: true } } : {}),
   });
   pool.on('error', (err) => options.onPoolError?.(err));
+  // pg-pool listens for errors only on IDLE clients (it removes its listener on checkout). A
+  // checked-out client whose connection dies (failover, network cut, pg_terminate_backend)
+  // would emit 'error' with no listener and crash the process. The query or transaction using
+  // it already rejects with that error, so there is nothing more to do here.
+  pool.on('connect', (client) => {
+    client.on('error', () => {});
+  });
 
   return {
     db: drizzle(pool, { schema }),

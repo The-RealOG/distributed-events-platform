@@ -43,7 +43,6 @@ let broker: StartedKafka;
 let database: DatabaseHandle;
 let kafka: Kafka;
 const lines: Record<string, unknown>[] = [];
-const poolErrors: Error[] = [];
 const logger = pino(
   { level: 'debug' },
   { write: (l: string) => void lines.push(JSON.parse(l) as Record<string, unknown>) },
@@ -56,9 +55,6 @@ beforeAll(async () => {
     connectionString: postgres.url,
     applicationName: 'idempotency-test',
     maxConnections: 20,
-    // The crash test kills its own session; the pool reports that dropped client here (as
-    // services log it) instead of as an unhandled error.
-    onPoolError: (err) => poolErrors.push(err),
   });
   await database.pool.query(`
     CREATE TABLE consumer_side_effects (

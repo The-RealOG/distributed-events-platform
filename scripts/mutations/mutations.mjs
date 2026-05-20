@@ -357,4 +357,18 @@ export const mutations = [
     ],
     tests: IDEM_TESTS,
   },
+  {
+    id: 'p5-09-checked-out-client-error-unhandled',
+    phase: 5,
+    title:
+      'no error listener on checked-out clients: a connection dying mid-transaction crashes the process',
+    edits: [
+      {
+        file: 'packages/database/src/client.ts',
+        find: "    client.on('error', () => {});\n",
+        replace: '    void client;\n',
+      },
+    ],
+    tests: IDEM_TESTS,
+  },
 ];
