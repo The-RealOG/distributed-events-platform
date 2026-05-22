@@ -296,15 +296,17 @@ export const mutations = [
     tests: IDEM_TESTS,
   },
   {
+    // Not awaiting the handler lets KafkaJS resolve (and auto-commit) the offset before the
+    // handler's DB transaction commits or fails. A first version, a manual commitOffsets before
+    // the handler, was masked by KafkaJS re-committing its own resolved offset and survived.
     id: 'p5-05-offset-committed-before-processing',
     phase: 5,
-    title: 'consumer commits the Kafka offset before the handler (and its DB transaction) runs',
+    title: 'consumer acknowledges the message before the handler’s DB transaction finishes',
     edits: [
       {
         file: 'packages/kafka/src/consumer.ts',
-        find: '    const started = performance.now();\n    try {\n      await this.#options.handler(event, metadata);',
-        replace:
-          '    await this.#consumer.commitOffsets([{ topic, partition, offset: (BigInt(message.offset) + 1n).toString() }]);\n    const started = performance.now();\n    try {\n      await this.#options.handler(event, metadata);',
+        find: '      await this.#options.handler(event, metadata);',
+        replace: '      void this.#options.handler(event, metadata).catch(() => undefined);',
       },
     ],
     tests: IDEM_TESTS,

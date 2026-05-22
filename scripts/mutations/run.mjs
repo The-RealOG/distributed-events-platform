@@ -8,7 +8,9 @@ import { mutations } from './mutations.mjs';
 
 const [arg, phase] = process.argv.slice(2);
 if (arg === '--list') {
-  const ids = mutations.filter((m) => !phase || String(m.phase) === phase).map((m) => m.id);
+  const ids = mutations
+    .filter((m) => !phase || String(m.phase) === phase || m.id.startsWith(phase))
+    .map((m) => m.id);
   console.log(JSON.stringify(ids));
   process.exit(0);
 }
