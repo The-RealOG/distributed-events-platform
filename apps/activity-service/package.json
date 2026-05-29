@@ -1,0 +1,30 @@
+{
+  "name": "@dpp/activity-service",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "PORT=3003 tsx watch --env-file-if-exists=../../.env src/server.ts",
+    "start": "node --disable-warning=TimeoutNegativeWarning dist/server.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
+  },
+  "dependencies": {
+    "@dpp/config": "*",
+    "@dpp/contracts": "*",
+    "@dpp/database": "*",
+    "@dpp/kafka": "*",
+    "@dpp/observability": "*",
+    "@dpp/runtime": "*",
+    "fastify": "^5.12.5",
+    "pino": "^10.3.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@dpp/test-utils": "*",
+    "kafkajs": "^2.2.4"
+  }
+}

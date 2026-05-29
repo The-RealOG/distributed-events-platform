@@ -211,3 +211,43 @@ label {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+.board-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  gap: 1rem;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .board-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.activity {
+  background: #fff;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+.activity-list {
+  list-style: none;
+  margin: 0.5rem 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.activity-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+.activity-list time {
+  color: #59636e;
+  white-space: nowrap;
+}
+.small {
+  font-size: 0.8rem;
+  margin: 0;
+}

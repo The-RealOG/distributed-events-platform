@@ -22,6 +22,13 @@
       "when": 1790410493789,
       "tag": "0002_processed_events",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790415252348,
+      "tag": "0003_activity_events",
+      "breakpoints": true
     }
   ]
 }

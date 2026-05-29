@@ -67,6 +67,8 @@ export class DomainEventConsumer {
   readonly #options: DomainEventConsumerOptions;
   #assigned: { topic: string; partitions: number[] }[] = [];
   readonly #joinWaiters: (() => void)[] = [];
+  #joined = false;
+  #crashed = false;
 
   constructor(options: DomainEventConsumerOptions) {
     this.#options = options;
@@ -79,14 +81,31 @@ export class DomainEventConsumer {
       allowAutoTopicCreation: false,
       sessionTimeout: options.sessionTimeoutMs ?? 30_000,
     });
+    this.#consumer.on(this.#consumer.events.CRASH, ({ payload }) => {
+      if (!payload.restart) this.#crashed = true;
+      this.#logger.error({ err: payload.error, restart: payload.restart }, 'consumer crashed');
+    });
+    this.#consumer.on(this.#consumer.events.STOP, () => {
+      this.#joined = false;
+    });
     this.#consumer.on(this.#consumer.events.GROUP_JOIN, ({ payload }) => {
       this.#assigned = Object.entries(payload.memberAssignment).map(([topic, partitions]) => ({
         topic,
         partitions: [...partitions].sort(),
       }));
+      this.#joined = true;
+      this.#crashed = false;
       this.#logger.info({ assignment: this.#assigned }, 'joined consumer group');
       this.#joinWaiters.splice(0).forEach((resolve) => resolve());
     });
+  }
+
+  /**
+   * In the group and consuming. False before the first join, after stop(), and after a crash
+   * KafkaJS will not restart from (it restarts from retriable ones by itself).
+   */
+  get running(): boolean {
+    return this.#joined && !this.#crashed;
   }
 
   get groupId(): string {

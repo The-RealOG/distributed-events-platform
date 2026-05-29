@@ -114,3 +114,30 @@ export const boardDto = z.object({
   columns: z.array(boardColumnDto),
 });
 export type BoardDto = z.infer<typeof boardDto>;
+
+/**
+ * One entry of a project's activity history (ADR-014): the structured facts recorded from a
+ * domain event. `data` depends on `eventType` (see the Activity Service's projection); clients
+ * word it themselves. `id` is the pagination cursor.
+ */
+export const activityEntryDto = z.object({
+  id: z.string(),
+  eventId: z.uuid(),
+  eventType: z.string(),
+  taskId: z.uuid(),
+  actorId: z.uuid(),
+  data: z.record(z.string(), z.unknown()),
+  occurredAt: z.string(),
+  correlationId: z.string(),
+});
+export type ActivityEntryDto = z.infer<typeof activityEntryDto>;
+
+export const activityPageDto = z.object({
+  /** Newest first. */
+  items: z.array(activityEntryDto),
+  /** Pass as `before` for the next (older) page; null when there is none. */
+  nextCursor: z.string().nullable(),
+  /** Display names for the users referenced on this page (actors, assignees). */
+  people: z.record(z.string(), z.string()),
+});
+export type ActivityPageDto = z.infer<typeof activityPageDto>;

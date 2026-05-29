@@ -5,6 +5,7 @@ import { Link, Outlet, useNavigate, useParams } from 'react-router';
 import { ErrorNotice, Loading } from '../../components/ErrorNotice';
 import { describeError } from '../../lib/api/errors';
 import { useApi } from '../../lib/AppProviders';
+import { ActivityPanel } from '../activity/ActivityPanel';
 import { queryKeys } from '../../lib/query/keys';
 import { moveTargets } from './moves';
 import { useTaskMutations } from './useTaskMutations';
@@ -41,10 +42,13 @@ export function BoardPage() {
           <ErrorNotice error={board.error} onRetry={() => void board.refetch()} />
         </>
       )}
-      <div className="board">
-        {board.data.columns.map((column) => (
-          <Column key={column.id} board={board.data} column={column} />
-        ))}
+      <div className="board-layout">
+        <div className="board">
+          {board.data.columns.map((column) => (
+            <Column key={column.id} board={board.data} column={column} />
+          ))}
+        </div>
+        <ActivityPanel board={board.data} />
       </div>
       <Outlet context={board.data} />
     </section>

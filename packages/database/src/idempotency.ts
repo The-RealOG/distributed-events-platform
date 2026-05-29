@@ -126,6 +126,7 @@ export function createIdempotentHandler(options: IdempotentHandlerOptions) {
       eventId: event.eventId,
       eventType: event.eventType,
       correlationId: event.correlationId,
+      projectId: event.payload.projectId,
       topic: metadata.topic,
       partition: metadata.partition,
       offset: metadata.offset,

@@ -255,3 +255,33 @@ export const processedEvents = pgTable(
     ),
   ],
 );
+
+/**
+ * Activity projection (ADR-014), written only by the Activity Service from domain events. One
+ * row per event (UNIQUE event_id: a projection invariant; the duplicate-safe consumption itself
+ * is processed_events, ADR-013). Structured `data`, not display text, so presentation can change.
+ *
+ * `id` is the persisted order: rows are inserted in consumption order, which for one project is
+ * its partition order, i.e. its outbox (commit) order. The API pages newest-first by id.
+ * No foreign keys: a projection mirrors events; it does not enforce the source's integrity.
+ */
+export const activityEvents = pgTable(
+  'activity_events',
+  {
+    id: bigint('id', { mode: 'bigint' }).primaryKey().generatedAlwaysAsIdentity(),
+    eventId: uuid('event_id').notNull().unique(),
+    projectId: uuid('project_id').notNull(),
+    eventType: text('event_type').notNull(),
+    aggregateType: text('aggregate_type').notNull(),
+    aggregateId: uuid('aggregate_id').notNull(),
+    aggregateVersion: integer('aggregate_version').notNull(),
+    taskId: uuid('task_id').notNull(),
+    actorId: uuid('actor_id').notNull(),
+    data: jsonb('data').$type<Record<string, unknown>>().notNull(),
+    correlationId: text('correlation_id').notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+  },
+  // The API query: one project's history, newest first, cursor on id.
+  (t) => [index('activity_events_project_id_idx').on(t.projectId, t.id.desc())],
+);

@@ -1,4 +1,5 @@
 import {
+  activityPageDto,
   boardDto,
   commentDto,
   devLoginResponse,
@@ -43,6 +44,11 @@ export function createApi(client: ApiClient) {
       r('POST', '/projects', { body: { workspaceId, name }, schema: projectDto }),
     getBoard: (projectId: string, signal?: AbortSignal) =>
       r('GET', `/projects/${id(projectId)}/board`, { schema: boardDto, signal }),
+    getActivity: (projectId: string, before?: string, signal?: AbortSignal) =>
+      r('GET', `/projects/${id(projectId)}/activity${before ? `?before=${id(before)}` : ''}`, {
+        schema: activityPageDto,
+        signal,
+      }),
 
     createTask: (input: { projectId: string; columnId: string; title: string }) =>
       r('POST', '/tasks', { body: input, schema: taskDto }),
