@@ -40,6 +40,37 @@ const CLAIM_BLOCK = [
   '  });',
 ].join('\n');
 
+// Phases 6-7 (activity projection, shared board cache)
+const ACT = { cwd: 'apps/activity-service', config: 'vitest.integration.config.ts' };
+const ACT_TESTS = [{ ...ACT, files: [] }];
+const PS_ACTIVITY = [{ ...PS, files: ['test/activity.int.test.ts'] }];
+const SYSTEM_P67 = { ...SYS, files: ['integration/projections-and-cache.int.test.ts'] };
+const CACHE_INT = { cwd: 'packages/cache', config: 'vitest.integration.config.ts', files: [] };
+const CACHE_UNIT = { cwd: 'packages/cache', config: 'vitest.config.ts', files: [] };
+const INV_UNIT = { cwd: 'apps/cache-invalidator', config: 'vitest.config.ts', files: [] };
+const ARCH = { cwd: 'tests', config: 'vitest.unit.config.ts', files: ['architecture'] };
+const ACT_WORKER = 'apps/activity-service/src/worker.ts';
+const ACT_HANDLER = [
+  '    handler: createIdempotentHandler({',
+  '      db: options.db,',
+  '      consumerName: CONSUMER_NAME,',
+  '      logger: options.logger,',
+  '      handle: (event, tx) => recordActivity(tx, event),',
+  '      onOutcome: count,',
+  '    }),',
+].join('\n');
+const DIRECT_HANDLER = [
+  '    handler: async (event) => {',
+  '      await options.db.transaction((tx) => recordActivity(tx, event));',
+  "      count('processed');",
+  '    },',
+].join('\n');
+const PROJECTION = 'apps/activity-service/src/projection.ts';
+const BOARD_SERVICE = 'apps/project-service/src/modules/projects/service.ts';
+const SHARED = 'packages/cache/src/shared-cache.ts';
+const INV_WORKER = 'apps/cache-invalidator/src/worker.ts';
+const TASK_SERVICE = 'apps/project-service/src/modules/tasks/service.ts';
+
 export const mutations = [
   {
     id: 'p4-baseline',
@@ -372,5 +403,313 @@ export const mutations = [
       },
     ],
     tests: IDEM_TESTS,
+  },
+  // ---------------------------------------------------------------- Phase 6
+  {
+    id: 'p6-baseline',
+    phase: 6,
+    title: 'no mutation: activity suites pass',
+    edits: [],
+    tests: [...ACT_TESTS, ...PS_ACTIVITY],
+    expect: 'pass',
+  },
+  {
+    id: 'p6-01-bypasses-phase5-dedupe',
+    phase: 6,
+    title: 'activity worker writes directly, without processEventOnce',
+    edits: [{ file: ACT_WORKER, find: ACT_HANDLER, replace: DIRECT_HANDLER }],
+    tests: ACT_TESTS,
+  },
+  {
+    id: 'p6-02-duplicate-creates-duplicate-activity',
+    phase: 6,
+    title: 'no dedupe and no UNIQUE(event_id): a redelivery adds a second entry',
+    edits: [
+      { file: ACT_WORKER, find: ACT_HANDLER, replace: DIRECT_HANDLER },
+      {
+        file: 'packages/database/migrations/0003_activity_events.sql',
+        find: ',\n\tCONSTRAINT "activity_events_event_id_unique" UNIQUE("event_id")',
+        replace: '',
+      },
+    ],
+    tests: ACT_TESTS,
+  },
+  {
+    id: 'p6-03-marker-commits-activity-rolls-back',
+    phase: 6,
+    title: 'activity insert failure swallowed (savepoint): the marker commits without the entry',
+    edits: [
+      {
+        file: PROJECTION,
+        find: '  await tx.insert(activityEvents).values(toActivityRow(event));',
+        replace:
+          '  await tx.transaction((sp) => sp.insert(activityEvents).values(toActivityRow(event))).catch(() => undefined);',
+      },
+    ],
+    tests: ACT_TESTS,
+  },
+  {
+    id: 'p6-04-activity-commits-marker-does-not',
+    phase: 6,
+    title: 'activity written in its own transaction, separate from the processed marker',
+    edits: [
+      {
+        file: ACT_WORKER,
+        find: '      handle: (event, tx) => recordActivity(tx, event),',
+        replace:
+          '      handle: (event) => options.db.transaction((own) => recordActivity(own, event)),',
+      },
+    ],
+    tests: ACT_TESTS,
+  },
+  {
+    id: 'p6-05-offset-before-db-transaction',
+    phase: 6,
+    title: 'consumer acknowledges before the activity transaction finishes',
+    edits: [
+      {
+        file: 'packages/kafka/src/consumer.ts',
+        find: '      await this.#options.handler(event, metadata);',
+        replace: '      void this.#options.handler(event, metadata).catch(() => undefined);',
+      },
+    ],
+    tests: ACT_TESTS,
+  },
+  {
+    id: 'p6-06-activity-authorization-removed',
+    phase: 6,
+    title: 'GET /projects/:id/activity without the project access check',
+    edits: [
+      {
+        file: 'apps/project-service/src/modules/activity/service.ts',
+        find: '    await requireProjectRole(this.db, principal.userId, projectId, REQUIRED_ROLE.readProject);\n',
+        replace: '    void requireProjectRole;\n',
+      },
+    ],
+    tests: PS_ACTIVITY,
+  },
+  {
+    id: 'p6-07-wrong-project-id',
+    phase: 6,
+    title: 'activity recorded under the task id instead of the project id',
+    edits: [
+      {
+        file: PROJECTION,
+        find: '    projectId: event.payload.projectId,',
+        replace: '    projectId: event.aggregateId,',
+      },
+    ],
+    tests: ACT_TESTS,
+  },
+  {
+    id: 'p6-08-correlation-lost',
+    phase: 6,
+    title: 'activity gets a fresh correlation ID',
+    edits: [
+      {
+        file: PROJECTION,
+        find: '    correlationId: event.correlationId,',
+        replace: '    correlationId: crypto.randomUUID(),',
+      },
+    ],
+    tests: ACT_TESTS,
+  },
+  {
+    id: 'p6-09-request-path-writes-activity',
+    phase: 6,
+    title: 'task creation writes activity synchronously in the request transaction',
+    edits: [
+      {
+        file: TASK_SERVICE,
+        find: "import { insertOutboxEvent, type Database, type DbExecutor } from '@dpp/database';",
+        replace:
+          "import { insertOutboxEvent, sql, type Database, type DbExecutor } from '@dpp/database';",
+      },
+      {
+        file: TASK_SERVICE,
+        find: '      await insertOutboxEvent(tx, buildTaskEvent.created(ctx, task));',
+        replace: [
+          '      await insertOutboxEvent(tx, buildTaskEvent.created(ctx, task));',
+          "      await tx.execute(sql`INSERT INTO activity_events (event_id, project_id, event_type, aggregate_type, aggregate_id, aggregate_version, task_id, actor_id, data, correlation_id, occurred_at) VALUES (gen_random_uuid(), ${task.projectId}, 'task.created', 'task', ${task.id}, 1, ${task.id}, ${ctx.principal.userId}, '{}', ${ctx.correlationId}, now())`);",
+        ].join('\n'),
+      },
+    ],
+    tests: PS_ACTIVITY,
+  },
+  {
+    id: 'p6-10-unstable-consumer-name',
+    phase: 6,
+    title: 'each activity handler instance uses its own random consumer identity',
+    edits: [
+      {
+        file: ACT_WORKER,
+        find: '      consumerName: CONSUMER_NAME,',
+        replace: '      consumerName: `${CONSUMER_NAME}-${crypto.randomUUID().slice(0, 8)}`,',
+      },
+    ],
+    tests: [...ACT_TESTS, ARCH],
+  },
+  // ---------------------------------------------------------------- Phase 7
+  {
+    id: 'p7-baseline',
+    phase: 7,
+    title: 'no mutation: cache suites pass',
+    edits: [],
+    tests: [CACHE_UNIT, CACHE_INT, INV_UNIT, SYSTEM_P67],
+    expect: 'pass',
+  },
+  {
+    id: 'p7-01-wrong-cache-key',
+    phase: 7,
+    title: 'board key without the project id (all projects share one entry)',
+    edits: [
+      {
+        file: 'packages/cache/src/keys.ts',
+        find: '    key: `board:v${BOARD_FORMAT}:${projectId}`,',
+        replace: '    key: `board:v${BOARD_FORMAT}`,',
+      },
+    ],
+    tests: [SYSTEM_P67],
+  },
+  {
+    id: 'p7-02-update-not-invalidated',
+    phase: 7,
+    title: 'task.updated does not invalidate the board',
+    edits: [
+      { file: INV_WORKER, find: "  'task.updated': true,", replace: "  'task.updated': false," },
+    ],
+    tests: [SYSTEM_P67],
+  },
+  {
+    id: 'p7-03-invalidates-unrelated-projects',
+    phase: 7,
+    title: 'invalidation deletes every board entry, not just the event’s project',
+    edits: [
+      {
+        file: SHARED,
+        find: "return redis.call('DEL', KEYS[1])`;",
+        replace:
+          "for _, k in ipairs(redis.call('KEYS', 'board:v*')) do redis.call('DEL', k) end\nreturn 1`;",
+      },
+    ],
+    tests: [CACHE_INT, SYSTEM_P67],
+  },
+  {
+    id: 'p7-04-redis-outage-500',
+    phase: 7,
+    title: 'a cache read error fails the board request',
+    edits: [
+      {
+        file: BOARD_SERVICE,
+        find: "    if (cached.status === 'hit') return { board: cached.value, cache: 'HIT' };",
+        replace:
+          "    if (cached.status === 'error') throw new Error('cache unavailable');\n    if (cached.status === 'hit') return { board: cached.value, cache: 'HIT' };",
+      },
+    ],
+    tests: [SYSTEM_P67],
+  },
+  {
+    id: 'p7-05-set-failure-breaks-read',
+    phase: 7,
+    title: 'a failed cache write throws into the request',
+    edits: [
+      {
+        file: SHARED,
+        find: "        'cache write failed; value not cached',\n      );\n",
+        replace: "        'cache write failed; value not cached',\n      );\n      throw err;\n",
+      },
+    ],
+    tests: [CACHE_INT],
+  },
+  {
+    id: 'p7-06-writes-depend-on-redis',
+    phase: 7,
+    title: 'task update invalidates Redis directly inside its transaction',
+    edits: [
+      {
+        file: TASK_SERVICE,
+        find: "import { insertOutboxEvent, type Database, type DbExecutor } from '@dpp/database';",
+        replace: [
+          "import { boardCacheEntry, createRedisClient, SharedCache } from '@dpp/cache';",
+          "import { insertOutboxEvent, type Database, type DbExecutor } from '@dpp/database';",
+          "import { pino } from 'pino';",
+          "const quiet = pino({ level: 'silent' });",
+          "const directCache = new SharedCache(createRedisClient({ url: process.env['REDIS_URL'] ?? 'redis://127.0.0.1:1', logger: quiet }), { logger: quiet, ttlSeconds: 1 });",
+        ].join('\n'),
+      },
+      {
+        file: TASK_SERVICE,
+        find: '      await insertOutboxEvent(tx, buildTaskEvent.updated(ctx, task, updated));',
+        replace:
+          '      await insertOutboxEvent(tx, buildTaskEvent.updated(ctx, task, updated));\n      await directCache.invalidate(boardCacheEntry(task.projectId));',
+      },
+    ],
+    tests: [ARCH, SYSTEM_P67],
+  },
+  {
+    id: 'p7-07-authorization-bypass-on-hit',
+    phase: 7,
+    title: 'the cached board is returned before the access check',
+    edits: [
+      {
+        file: BOARD_SERVICE,
+        find: '    await requireProjectRole(this.db, principal.userId, projectId, REQUIRED_ROLE.readProject);\n    const cached',
+        replace: '    const cached',
+      },
+    ],
+    tests: [SYSTEM_P67],
+  },
+  {
+    id: 'p7-08-invalidator-cannot-catch-up',
+    phase: 7,
+    title: 'the invalidator acknowledges events whose invalidation failed',
+    edits: [
+      {
+        file: INV_WORKER,
+        find: "        'invalidation failed; will be redelivered',\n      );\n      throw err;",
+        replace: "        'invalidation failed; will be redelivered',\n      );\n      return;",
+      },
+    ],
+    tests: [SYSTEM_P67],
+  },
+  {
+    id: 'p7-09-corrupt-entry-crashes',
+    phase: 7,
+    title: 'a corrupt cache entry throws instead of being treated as a miss',
+    edits: [
+      {
+        file: SHARED,
+        find: '      this.stats.corrupt++;',
+        replace:
+          "      if (parsed.reason) throw new Error('corrupt cache entry');\n      this.stats.corrupt++;",
+      },
+    ],
+    tests: [CACHE_INT],
+  },
+  {
+    id: 'p7-10-no-ttl',
+    phase: 7,
+    title: 'cached values are stored without expiry',
+    edits: [
+      {
+        file: SHARED,
+        find: "  redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])",
+        replace: "  redis.call('SET', KEYS[1], ARGV[2])",
+      },
+    ],
+    tests: [CACHE_INT],
+  },
+  {
+    id: 'p7-11-stale-write-back',
+    phase: 7,
+    title: 'write-back ignores the generation (a pre-invalidation snapshot is stored)',
+    edits: [
+      {
+        file: SHARED,
+        find: 'if current == ARGV[1] then',
+        replace: 'if true then',
+      },
+    ],
+    tests: [CACHE_INT],
   },
 ];

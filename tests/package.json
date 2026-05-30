@@ -12,7 +12,9 @@
     "test:stack": "vitest run --config vitest.stack.config.ts"
   },
   "devDependencies": {
+    "@dpp/activity-service": "*",
     "@dpp/api-gateway": "*",
+    "@dpp/cache-invalidator": "*",
     "@dpp/contracts": "*",
     "@dpp/database": "*",
     "@dpp/kafka": "*",
@@ -20,7 +22,7 @@
     "@dpp/project-service": "*",
     "@dpp/test-utils": "*",
     "@playwright/test": "^1.63.0",
-    "pino": "^10.3.1",
-    "kafkajs": "^2.2.4"
+    "kafkajs": "^2.2.4",
+    "pino": "^10.3.1"
   }
 }

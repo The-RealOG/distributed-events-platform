@@ -7,8 +7,11 @@ import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod
 import type { ProjectServiceConfig } from './config.js';
 import { registerPrincipal } from './http/authenticate.js';
 import { registerErrorHandling } from './http/errors.js';
+import { activityRoutes } from './modules/activity/routes.js';
+import { ActivityService } from './modules/activity/service.js';
 import { devLoginRoutes, identityRoutes } from './modules/identity/routes.js';
 import { IdentityService, type TokenIssuer } from './modules/identity/service.js';
+import type { BoardCache } from './modules/projects/board-cache.js';
 import { projectRoutes } from './modules/projects/routes.js';
 import { ProjectService } from './modules/projects/service.js';
 import { taskRoutes } from './modules/tasks/routes.js';
@@ -31,6 +34,8 @@ export interface AppDependencies {
   authProvider: AuthProvider;
   /** Present only when dev login is enabled. */
   devTokenIssuer?: TokenIssuer | undefined;
+  /** Present only when the shared cache is enabled (ADR-015). */
+  boardCache?: BoardCache | undefined;
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -74,14 +79,21 @@ export function buildApp(deps: AppDependencies, state: AppState): FastifyInstanc
     }
   });
 
+  // Internal diagnostics (not routed by the gateway): cache effectiveness counters.
+  app.get('/status', () => ({ cache: deps.boardCache ? deps.boardCache.shared.stats : null }));
+
   const identity = new IdentityService(database.db);
   if (deps.devTokenIssuer) {
     void app.register(devLoginRoutes, { service: identity, issuer: deps.devTokenIssuer });
   }
   void app.register(identityRoutes, { service: identity, authProvider });
   void app.register(workspaceRoutes, { service: new WorkspaceService(database.db), authProvider });
-  void app.register(projectRoutes, { service: new ProjectService(database.db), authProvider });
+  void app.register(projectRoutes, {
+    service: new ProjectService(database.db, deps.boardCache),
+    authProvider,
+  });
   void app.register(taskRoutes, { service: new TaskService(database.db), authProvider });
+  void app.register(activityRoutes, { service: new ActivityService(database.db), authProvider });
 
   return app;
 }

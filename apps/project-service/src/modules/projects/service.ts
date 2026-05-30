@@ -12,6 +12,7 @@ import {
   listProjectsInWorkspace,
   type ProjectRow,
 } from './repository.js';
+import type { BoardCache, CacheStatus } from './board-cache.js';
 import type { BoardDto, ProjectDto } from './schemas.js';
 
 export const toProjectDto = (row: ProjectRow): ProjectDto => ({
@@ -25,7 +26,10 @@ export const toProjectDto = (row: ProjectRow): ProjectDto => ({
 });
 
 export class ProjectService {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly boardCache?: BoardCache,
+  ) {}
 
   async create(
     principal: Principal,
@@ -56,6 +60,26 @@ export class ProjectService {
   async listInWorkspace(principal: Principal, workspaceId: string): Promise<ProjectDto[]> {
     await requireWorkspaceRole(this.db, principal.userId, workspaceId, REQUIRED_ROLE.readWorkspace);
     return (await listProjectsInWorkspace(this.db, workspaceId)).map(toProjectDto);
+  }
+
+  /**
+   * Cache-aside board read (ADR-015). Authorization runs on EVERY request, before the cache is
+   * consulted, so a cached board is never served to someone who may not read the project. The
+   * cache is best effort: any Redis problem means "read PostgreSQL", never an error.
+   */
+  async getBoardCached(
+    principal: Principal,
+    projectId: string,
+  ): Promise<{ board: BoardDto; cache: CacheStatus }> {
+    if (!this.boardCache)
+      return { board: await this.getBoard(principal, projectId), cache: 'BYPASS' };
+    await requireProjectRole(this.db, principal.userId, projectId, REQUIRED_ROLE.readProject);
+    const cached = await this.boardCache.read(projectId);
+    if (cached.status === 'hit') return { board: cached.value, cache: 'HIT' };
+    const board = await this.getBoard(principal, projectId);
+    // Only after a clean miss: the write-back is refused if an invalidation happened meanwhile.
+    if (cached.status === 'miss') await this.boardCache.write(projectId, cached.generation, board);
+    return { board, cache: cached.status === 'miss' ? 'MISS' : 'BYPASS' };
   }
 
   /**

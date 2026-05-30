@@ -32,12 +32,37 @@ x-kafka-tools-build: &kafka-tools-build
     APP: '@dpp/kafka-tools'
     APP_DIR: apps/kafka-tools
 
+x-activity-service-build: &activity-service-build
+  context: .
+  dockerfile: infrastructure/docker/node-service.Dockerfile
+  args:
+    APP: '@dpp/activity-service'
+    APP_DIR: apps/activity-service
+
+x-cache-invalidator-build: &cache-invalidator-build
+  context: .
+  dockerfile: infrastructure/docker/node-service.Dockerfile
+  args:
+    APP: '@dpp/cache-invalidator'
+    APP_DIR: apps/cache-invalidator
+
 # Topology: browser → web (8080) and api-gateway (3000) → project-service → postgres.
 # project-service publishes no host port: only the gateway can reach it.
 # Events: project-service writes them to the outbox table in the same transaction as the change;
 # outbox-publisher delivers them to Kafka. Nothing that serves requests depends on Kafka or on
-# the publisher (ADR-011).
+# the publisher (ADR-011). activity-service projects events into activity_events (ADR-014);
+# cache-invalidator deletes board cache entries in valkey that project-service fills (ADR-015).
 services:
+  valkey:
+    image: valkey/valkey:8-alpine
+    expose:
+      - '6379'
+    healthcheck:
+      test: ['CMD', 'valkey-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   postgres:
     image: postgres:17-alpine
     environment:
@@ -75,11 +100,16 @@ services:
       DATABASE_URL: *database-url
       JWT_SECRET: ${JWT_SECRET:-local-development-only-jwt-secret-000}
       AUTH_DEV_LOGIN_ENABLED: 'true'
+      # Optional acceleration: if valkey is down, board reads go to PostgreSQL.
+      CACHE_ENABLED: 'true'
+      REDIS_URL: redis://valkey:6379
     expose:
       - '3001'
     depends_on:
       migrate:
         condition: service_completed_successfully
+      valkey:
+        condition: service_started
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3001/ready']
       interval: 5s
@@ -208,6 +238,48 @@ services:
       # Liveness only: /ready is 503 whenever Kafka is down, which is informative but should
       # not make Compose (or ECS) kill a worker that will recover by itself.
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3002/health']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  activity-service:
+    build: *activity-service-build
+    image: dpp/activity-service:local
+    command: ['node', '--disable-warning=TimeoutNegativeWarning', 'dist/server.js']
+    environment:
+      PORT: 3003
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: *database-url
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: activity-service
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3003/health']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  cache-invalidator:
+    build: *cache-invalidator-build
+    image: dpp/cache-invalidator:local
+    command: ['node', '--disable-warning=TimeoutNegativeWarning', 'dist/server.js']
+    environment:
+      PORT: 3004
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      REDIS_URL: redis://valkey:6379
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: cache-invalidator
+    depends_on:
+      valkey:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3004/health']
       interval: 10s
       timeout: 5s
       retries: 10

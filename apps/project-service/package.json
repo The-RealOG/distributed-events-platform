@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@dpp/auth": "*",
+    "@dpp/cache": "*",
     "@dpp/config": "*",
     "@dpp/contracts": "*",
     "@dpp/database": "*",

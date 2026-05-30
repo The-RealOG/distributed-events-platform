@@ -34,6 +34,14 @@ export const projectRoutes: FastifyPluginAsyncZod<{
   app.get(
     '/projects/:id/board',
     { schema: { params: idParams, response: { 200: boardDto } } },
-    (request) => service.getBoard(principalOf(request), request.params.id),
+    async (request, reply) => {
+      const { board, cache } = await service.getBoardCached(
+        principalOf(request),
+        request.params.id,
+      );
+      // Diagnostic only (like a CDN's x-cache): HIT, MISS, or BYPASS (cache off/unavailable).
+      void reply.header('x-cache', cache);
+      return board;
+    },
   );
 };

@@ -29,7 +29,7 @@ export default tseslint.config(
   {
     // Integration tests assert on JSON response bodies structurally; typing every payload
     // would add ceremony without catching anything the assertions don't.
-    files: ['**/test/**/*.ts', 'tests/**/*.ts'],
+    files: ['**/test/**/*.ts', 'tests/**/*.ts', '**/*.test.ts'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',

@@ -1,8 +1,12 @@
 import { LocalJwtAuthProvider } from '@dpp/auth';
+import { createRedisClient, SharedCache } from '@dpp/cache';
 import { createDatabase, databaseTlsCaFromEnv } from '@dpp/database';
+import { createLoggerOptions } from '@dpp/observability';
 import { installGracefulShutdown } from '@dpp/runtime';
-import { buildApp, type AppState } from './app.js';
+import { pino } from 'pino';
+import { buildApp, SERVICE_NAME, type AppState } from './app.js';
 import { loadProjectServiceConfig } from './config.js';
+import { BoardCache } from './modules/projects/board-cache.js';
 
 const config = loadProjectServiceConfig();
 const state: AppState = { ready: false };
@@ -23,12 +27,31 @@ const database = createDatabase({
   onPoolError: (err) => app.log.error({ err }, 'idle database client error'),
 });
 
+// Optional shared cache. Redis never participates in writes, and its absence never fails a read.
+const redis =
+  config.CACHE_ENABLED && config.REDIS_URL
+    ? createRedisClient({
+        url: config.REDIS_URL,
+        logger: pino(createLoggerOptions(SERVICE_NAME, config.LOG_LEVEL)),
+        commandTimeoutMs: config.CACHE_COMMAND_TIMEOUT_MS,
+      })
+    : undefined;
+const boardCache = redis
+  ? new BoardCache(
+      new SharedCache(redis, {
+        logger: pino(createLoggerOptions(SERVICE_NAME, config.LOG_LEVEL)),
+        ttlSeconds: config.CACHE_TTL_SECONDS,
+      }),
+    )
+  : undefined;
+
 const app = buildApp(
   {
     config,
     database,
     authProvider,
     devTokenIssuer: config.AUTH_DEV_LOGIN_ENABLED ? authProvider : undefined,
+    boardCache,
   },
   state,
 );
@@ -47,6 +70,14 @@ installGracefulShutdown({
   steps: [
     { name: 'http', run: () => app.close() },
     { name: 'database', run: () => database.close() },
+    ...(redis
+      ? [
+          {
+            name: 'redis',
+            run: async () => void (await redis.quit().catch(() => redis.disconnect())),
+          },
+        ]
+      : []),
   ],
 });
 
