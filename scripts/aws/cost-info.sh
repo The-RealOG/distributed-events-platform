@@ -35,6 +35,12 @@ r, u = rate("AmazonRDS", f"{d['DBInstanceClass']} Single-AZ instance hour", "Typ
 rows.append(("RDS PostgreSQL", f"{d['DBInstanceClass']}, {d['AllocatedStorage']} GB gp3, status {d['DBInstanceStatus']}", r and f"${r:.4f}/{u}", "can be stopped up to 7 days (aws rds stop-db-instance)"))
 r, u = rate("AWSELB", "Application LoadBalancer-hour", "Type=TERM_MATCH,Field=productFamily,Value=Load Balancer-Application")
 rows.append(("Application Load Balancer", "1", r and f"${r:.4f}/{u} + LCU usage", "always on while it exists"))
+rgs = [g for g in aws("elasticache", "describe-replication-groups")["ReplicationGroups"] if g["ReplicationGroupId"] == prefix]
+if rgs:
+    ntype = rgs[0]["CacheNodeType"]; nodes = len(rgs[0]["MemberClusters"])
+    r, u = rate("AmazonElastiCache", "running Valkey", "Type=TERM_MATCH,Field=regionCode,Value=" + region,
+                f"Type=TERM_MATCH,Field=instanceType,Value={ntype}", "Type=TERM_MATCH,Field=cacheEngine,Value=Valkey")
+    rows.append(("ElastiCache Valkey", f"{nodes} × {ntype}", r and f"${r:.4f}/{u} each", "always on; enable_redis=false removes it"))
 tasks = aws("ecs", "list-tasks", "--cluster", cluster, "--desired-status", "RUNNING")["taskArns"]
 vcpu = mem = 0.0
 if tasks:

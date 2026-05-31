@@ -1,11 +1,12 @@
 # Architecture
 
 > This document tracks the implementation as it stands. Sections are added as phases land.
-> Current state: **Phase 5**. The pieces are a React frontend, an API Gateway, the Project
-> Service (PostgreSQL), and the Outbox Publisher, which delivers domain events to Kafka through a
-> transactional outbox. Consumers apply events idempotently through `processed_events`
-> (ADR-013). No business consumer is deployed yet (the Activity Service is Phase 6). No Redis,
-> WebSockets or object storage yet.
+> Current state: **Phase 7**. A React frontend and an API Gateway in front of the Project
+> Service (PostgreSQL, authoritative). Changes and their domain events commit together
+> (transactional outbox); the Outbox Publisher delivers events to Kafka. Two consumers react:
+> the Activity Service projects history (ADR-014) and the Cache Invalidator keeps the shared
+> Redis board cache fresh (ADR-015); both are duplicate-safe (ADR-013). No WebSockets,
+> notifications or object storage yet.
 
 ## Topology
 
@@ -13,21 +14,55 @@
 flowchart LR
   browser[Browser<br/>React SPA] -->|static files| web[web<br/>nginx :8080]
   browser -->|/api/*, Bearer JWT,<br/>x-correlation-id| gw[api-gateway :3000]
-  gw -->|internal HTTP<br/>PROJECT_SERVICE_URL| ps[project-service :3001<br/>not published to host]
-  ps --> pg[(PostgreSQL)]
+  gw -->|internal HTTP| ps[project-service :3001<br/>replicas share the cache]
+  ps -->|domain change + outbox row,<br/>one transaction| pg[(PostgreSQL<br/>authoritative)]
+  ps -->|board: cache-aside<br/>GET / SET if generation unchanged| redis[(Redis / Valkey<br/>disposable)]
 
-  kafka[(Kafka<br/>domain.events ×3<br/>domain.events.dlq ×1)]
   op[outbox-publisher :3002] -->|claim · mark| pg
-  op -->|publish, acks=-1| kafka
+  op -->|publish, acks=-1| kafka[(Kafka<br/>domain.events ×3<br/>domain.events.dlq ×1)]
+  kafka -->|group activity-service| act[activity-service :3003]
+  act -->|activity row + processed marker,<br/>one transaction| pg
+  kafka -->|group cache-invalidator| inv[cache-invalidator :3004]
+  inv -->|INCR gen + DEL board:v1:projectId| redis
   tools[kafka-tools<br/>init job · probe consumer] <--> kafka
 ```
 
+```
+                         Client
+                           │
+                        Gateway
+                           │
+                     Project Service ──── board read: Redis (hit) ─── miss ──▶ PostgreSQL
+                           │
+                  PostgreSQL transaction
+                   ┌───────┴────────┐
+              domain state        outbox
+                   └────COMMIT──────┘
+                                    │
+                            Outbox Publisher
+                                    │
+                                  Kafka
+                        ┌───────────┴───────────┐
+                 Activity Service        Cache Invalidator
+                        │                       │
+                 activity_events           Redis DEL
+```
+
 The request path ends at PostgreSQL. A task mutation commits its change **and** its event row
-in one transaction, then responds. The outbox-publisher, a separate process, moves committed
-events to Kafka. Neither Kafka nor the publisher can make a request fail.
+in one transaction, then responds. Kafka, the publisher, the Activity Service, the Cache
+Invalidator and Redis cannot make a change fail. Redis can only make a board read slower (fall
+back to PostgreSQL) or, briefly, older (the stale window in ADR-015).
 
 The browser knows two origins: where the app is served from, and the gateway. It never learns
 internal service addresses. `project-service` publishes no host port in Compose.
+
+### Consistency at a glance
+
+| Read                         | Source                       | Freshness after a change                                              |
+| ---------------------------- | ---------------------------- | --------------------------------------------------------------------- |
+| `GET /tasks/:id`             | PostgreSQL                   | immediate                                                             |
+| `GET /projects/:id/board`    | Redis, else PostgreSQL       | normally sub-second (until invalidation); bounded by TTL (300 s)      |
+| `GET /projects/:id/activity` | `activity_events` projection | normally seconds; later during an Activity Service outage, never lost |
 
 ## Deployment targets
 

@@ -45,7 +45,8 @@
     "aws:cost-info": "scripts/aws/cost-info.sh",
     "aws:destroy": "scripts/aws/destroy.sh",
     "aws:destroy:all": "scripts/aws/destroy-all.sh",
-    "aws:audit": "scripts/aws/audit.sh"
+    "aws:audit": "scripts/aws/audit.sh",
+    "aws:demo": "scripts/aws/demo.sh"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

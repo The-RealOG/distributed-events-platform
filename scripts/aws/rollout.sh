@@ -12,6 +12,9 @@ sha="${1:-}"
 [[ "$sha" =~ ^[0-9a-f]{7,40}$ ]] || die "usage: rollout.sh <git-sha>"
 
 cluster="$(cfg 'c["cluster"]')"
+# Families and long-running services come from Terraform (deploy config), not a list kept here.
+families="$(cfg '" ".join(c["families"])')"
+services="$(cfg '" ".join(c["services"])')"
 image_repo_for() {
   case "$1" in
     migrate) echo project-service ;;
@@ -19,7 +22,7 @@ image_repo_for() {
   esac
 }
 
-for key in project-service api-gateway outbox-publisher migrate kafka-tools; do
+for key in $families; do
   family="$(cfg "c['families']['$key']")"
   repo="$(cfg "c['ecr']['$(image_repo_for "$key")']")"
   aws ecr describe-images --repository-name "${repo#*/}" --image-ids imageTag="$sha" >/dev/null 2>&1 ||
@@ -46,7 +49,7 @@ done
 run_task migrate
 run_task kafka-tools
 
-for service in project-service api-gateway outbox-publisher; do
+for service in $services; do
   family="$(cfg "c['families']['$service']")"
   arn_var="arn_${service//-/_}"
   aws ecs update-service --cluster "$cluster" --service "$service" --task-definition "${!arn_var}" \
@@ -54,13 +57,14 @@ for service in project-service api-gateway outbox-publisher; do
   info "rolling $service → $family (latest)"
 done
 info "waiting for services to become stable (failed rollouts roll back automatically)"
-aws ecs wait services-stable --cluster "$cluster" --services project-service api-gateway outbox-publisher ||
+# shellcheck disable=SC2086 # word splitting intended
+aws ecs wait services-stable --cluster "$cluster" --services $services ||
   die "services did not stabilize; inspect with: npm run aws:status"
 # "Stable" (running == desired) can precede ECS marking the deployment COMPLETED, and after a
 # circuit-breaker rollback the primary deployment is the OLD revision, also COMPLETED. So wait
 # for the deployment of the revision registered above to reach COMPLETED; fail on FAILED or if
 # that revision is no longer the primary deployment.
-for service in project-service api-gateway outbox-publisher; do
+for service in $services; do
   arn_var="arn_${service//-/_}"
   deadline=$((SECONDS + 600))
   while :; do

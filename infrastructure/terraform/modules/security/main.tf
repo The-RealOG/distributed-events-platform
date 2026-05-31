@@ -4,6 +4,9 @@
 #                                                    outbox-publisher ──5432──▶ rds
 #                                                    outbox-publisher ──9098──▶ msk
 #                                        tools (migrate, kafka-tools) ──5432/9098──▶ rds/msk
+#                                                    activity-service ──5432/9098──▶ rds/msk
+#                                  project-service, cache-invalidator ──6379──▶ redis (TLS)
+#                                                   cache-invalidator ──9098──▶ msk
 #
 # Tasks may open outbound HTTPS (443) to reach AWS APIs (ECR, Secrets Manager, CloudWatch,
 # SSM for ECS Exec). Data stores have no internet-facing rules and no egress rules.
@@ -17,14 +20,16 @@ data "aws_ec2_managed_prefix_list" "cloudfront" {
 
 locals {
   groups = {
-    alb              = "Application load balancer (CloudFront origin only)"
-    gateway          = "api-gateway tasks"
-    project_service  = "project-service tasks"
-    outbox_publisher = "outbox-publisher tasks"
-    tools            = "one-off tasks: migrations, kafka-tools"
-    rds              = "PostgreSQL (RDS)"
-    msk              = "Kafka brokers (MSK)"
-    redis            = "Redis/Valkey (ElastiCache)"
+    alb               = "Application load balancer (CloudFront origin only)"
+    gateway           = "api-gateway tasks"
+    project_service   = "project-service tasks"
+    outbox_publisher  = "outbox-publisher tasks"
+    tools             = "one-off tasks: migrations, kafka-tools"
+    activity_service  = "activity-service tasks (Kafka consumer, no ingress)"
+    cache_invalidator = "cache-invalidator tasks (Kafka consumer, no ingress)"
+    rds               = "PostgreSQL (RDS)"
+    msk               = "Kafka brokers (MSK)"
+    redis             = "Redis/Valkey (ElastiCache)"
   }
   # [from, to, port] pairs of SG-to-SG access.
   links = {
@@ -36,8 +41,12 @@ locals {
     publisher_to_msk   = ["outbox_publisher", "msk", 9098]
     tools_to_msk       = ["tools", "msk", 9098]
     project_to_redis   = ["project_service", "redis", 6379]
+    activity_to_rds    = ["activity_service", "rds", 5432]
+    activity_to_msk    = ["activity_service", "msk", 9098]
+    invalidator_to_msk = ["cache_invalidator", "msk", 9098]
+    invalidator_redis  = ["cache_invalidator", "redis", 6379]
   }
-  https_egress = ["gateway", "project_service", "outbox_publisher", "tools"]
+  https_egress = ["gateway", "project_service", "outbox_publisher", "tools", "activity_service", "cache_invalidator"]
 }
 
 resource "aws_security_group" "this" {

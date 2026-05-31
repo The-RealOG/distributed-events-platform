@@ -108,7 +108,12 @@ open_world = [m for m in matrix if m[0] in ("0.0.0.0/0", "::/0")]
 check(not open_world, f"no ingress from 0.0.0.0/0 anywhere (found: {open_world or 'none'})")
 expected = {("alb", "gateway", "3000"), ("gateway", "project-service", "3001"), ("project-service", "rds", "5432"),
             ("outbox-publisher", "rds", "5432"), ("tools", "rds", "5432"), ("outbox-publisher", "msk", "9098"),
-            ("tools", "msk", "9098"), ("cloudfront-prefix-list", "alb", "80")}
+            ("tools", "msk", "9098"), ("cloudfront-prefix-list", "alb", "80"),
+            ("activity-service", "rds", "5432"), ("activity-service", "msk", "9098"),
+            ("cache-invalidator", "msk", "9098")}
+redis_on = bool(aws("elasticache", "describe-replication-groups", default={"ReplicationGroups": []}).get("ReplicationGroups"))
+if redis_on:
+    expected |= {("project-service", "redis", "6379"), ("cache-invalidator", "redis", "6379")}
 actual = {m for m in matrix if not m[0].startswith("default") and m[1] != "default"}
 check(actual == expected, f"ingress rules exactly as designed ({len(actual)} rules)" + ("" if actual == expected else f"; unexpected={actual-expected} missing={expected-actual}"))
 for g in sgs:
@@ -174,8 +179,8 @@ for r in mine:
     inv["ecr"].append({"name": r["repositoryName"], "scan_on_push": r["imageScanningConfiguration"]["scanOnPush"],
                        "tag_mutability": r["imageTagMutability"], "encryption": r["encryptionConfiguration"]["encryptionType"],
                        "lifecycle_policy": bool(lcp), "repository_policy": bool(rpol), "images": len(imgs)})
-check(sorted(x["name"] for x in inv["ecr"]) == sorted(f"{P}/{n}" for n in ["api-gateway", "kafka-tools", "outbox-publisher", "project-service"]),
-      f"ECR: exactly the 4 deployable images ({', '.join(x['name'].split('/')[1] for x in inv['ecr'])})")
+check(sorted(x["name"] for x in inv["ecr"]) == sorted(f"{P}/{n}" for n in ["api-gateway", "kafka-tools", "outbox-publisher", "project-service", "activity-service", "cache-invalidator"]),
+      f"ECR: exactly the 6 deployable images ({', '.join(x['name'].split('/')[1] for x in inv['ecr'])})")
 check(all(x["scan_on_push"] and x["tag_mutability"] == "IMMUTABLE" and x["lifecycle_policy"] and not x["repository_policy"] for x in inv["ecr"]),
       "ECR: scan on push, immutable tags, lifecycle policy, no repository policy (account-only access)")
 
@@ -233,7 +238,28 @@ check(len([s_ for s_ in mine_s if s_["Name"].startswith(P)]) == 2 and any(s_.get
 # ---- CloudWatch Logs
 lgs = aws("logs", "describe-log-groups", "--log-group-name-prefix", f"/ecs/{P}/")["logGroups"]
 inv["log_groups"] = [{"name": g["logGroupName"], "retention_days": g.get("retentionInDays"), "stored_bytes": g.get("storedBytes", 0)} for g in lgs]
-check(len(lgs) == 5 and all(g.get("retentionInDays") == 7 for g in lgs), f"{len(lgs)} ECS log groups, all with 7-day retention")
+check(len(lgs) == 7 and all(g.get("retentionInDays") == 7 for g in lgs), f"{len(lgs)} ECS log groups, all with 7-day retention")
+
+# ---- ElastiCache (Valkey)
+groups = aws("elasticache", "describe-replication-groups", default={"ReplicationGroups": []})["ReplicationGroups"]
+mine_rg = [g for g in groups if g["ReplicationGroupId"] == P]
+if mine_rg:
+    rg = mine_rg[0]
+    clusters = aws("elasticache", "describe-cache-clusters", "--show-cache-node-info")["CacheClusters"]
+    members = [c for c in clusters if c.get("ReplicationGroupId") == P]
+    sg_ids = {s["SecurityGroupId"] for c in members for s in c.get("SecurityGroups", [])}
+    subnet_group = aws("elasticache", "describe-cache-subnet-groups", "--cache-subnet-group-name", members[0]["CacheSubnetGroupName"])["CacheSubnetGroups"][0]
+    data_subnets = {x["id"] for x in net["subnets"] if x["tier"] == "data"}
+    inv["redis"] = {"status": rg["Status"], "engine": members[0]["Engine"], "engine_version": members[0]["EngineVersion"],
+                    "node_type": rg["CacheNodeType"], "nodes": len(members), "transit_encryption": rg["TransitEncryptionEnabled"],
+                    "at_rest_encryption": rg["AtRestEncryptionEnabled"], "security_groups": sorted(name_of.get(s, s) for s in sg_ids),
+                    "endpoint": rg["NodeGroups"][0]["PrimaryEndpoint"]["Address"]}
+    check(rg["Status"] == "available", f"ElastiCache {members[0]['Engine']} {members[0]['EngineVersion']} {rg['CacheNodeType']} available")
+    check(rg["TransitEncryptionEnabled"] and rg["AtRestEncryptionEnabled"], "ElastiCache: TLS in transit and encryption at rest")
+    check({s["SubnetIdentifier"] for s in subnet_group["Subnets"]} <= data_subnets, "ElastiCache nodes only in data subnets (no internet route)")
+    check(inv["redis"]["security_groups"] == ["redis"], "ElastiCache uses only the redis security group")
+else:
+    note("ElastiCache not provisioned (enable_redis = false)")
 
 # ---- Budget
 bud = aws("budgets", "describe-budgets", "--account-id", inv["account"], default={}).get("Budgets", [])

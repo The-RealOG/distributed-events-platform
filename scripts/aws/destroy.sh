@@ -9,7 +9,7 @@ confirm_destructive "DESTROY the '${DPP_ENV}' environment (RDS data, MSK topics,
 tf_init
 terraform -chdir="$TF_DIR" destroy -input=false -auto-approve
 # Task-definition revisions registered by deploys are outside Terraform: deregister and delete.
-for family in project-service api-gateway outbox-publisher migrate kafka-tools; do
+for family in project-service api-gateway outbox-publisher migrate kafka-tools activity-service cache-invalidator; do
   arns="$(aws ecs list-task-definitions --family-prefix "${NAME_PREFIX}-${family}" --query 'taskDefinitionArns' --output text)"
   for arn in $arns; do aws ecs deregister-task-definition --task-definition "$arn" >/dev/null; done
   inactive="$(aws ecs list-task-definitions --family-prefix "${NAME_PREFIX}-${family}" --status INACTIVE --query 'taskDefinitionArns' --output text)"

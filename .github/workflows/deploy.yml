@@ -31,6 +31,8 @@ jobs:
           - { image: api-gateway, app: '@dpp/api-gateway', dir: apps/api-gateway }
           - { image: outbox-publisher, app: '@dpp/outbox-publisher', dir: apps/outbox-publisher }
           - { image: kafka-tools, app: '@dpp/kafka-tools', dir: apps/kafka-tools }
+          - { image: activity-service, app: '@dpp/activity-service', dir: apps/activity-service }
+          - { image: cache-invalidator, app: '@dpp/cache-invalidator', dir: apps/cache-invalidator }
     steps:
       - uses: actions/checkout@v4
       - uses: aws-actions/configure-aws-credentials@v4

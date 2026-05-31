@@ -62,6 +62,6 @@ variable "kafka_version" {
 
 variable "enable_redis" {
   type        = bool
-  default     = false
-  description = "ElastiCache Valkey for Phase 7; off until something uses it"
+  default     = true
+  description = "ElastiCache Valkey (cache.t4g.micro) for the Phase 7 board cache; false removes it"
 }

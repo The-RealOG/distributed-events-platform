@@ -67,7 +67,7 @@ export function createInvalidatorWorker(options: {
       throw err;
     }
     stats.invalidated++;
-    log.debug(where, 'board cache invalidated');
+    log.info(where, 'board cache invalidated');
   };
 
   const consumer = new DomainEventConsumer({

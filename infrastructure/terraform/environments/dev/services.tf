@@ -37,7 +37,12 @@ module "project_service" {
     # Dev login is how the smoke test and demo sign in. The environment is short-lived and its URL
     # unpublished; a real environment would use an identity provider (AuthProvider interface).
     AUTH_DEV_LOGIN_ENABLED = "true"
-  })
+    }, var.enable_redis ? {
+    # Board cache (ADR-015); TLS in transit, reachable only from these tasks' security groups.
+    CACHE_ENABLED     = "true"
+    REDIS_URL         = "rediss://${module.redis.endpoint}:6379"
+    CACHE_TTL_SECONDS = "300"
+  } : {})
   secrets                = merge(local.app_db, { JWT_SECRET = module.secrets.jwt_secret_arn })
   create_service         = true
   cluster_arn            = module.cluster.cluster_arn
@@ -101,6 +106,60 @@ module "outbox_publisher" {
   security_group_id = module.security.ids["outbox_publisher"]
 }
 
+# Kafka → activity_events (ADR-014). No ingress; probes only (ECS container health check).
+module "activity_service" {
+  source             = "../../modules/ecs-service"
+  name               = "${local.name}-activity-service"
+  container_name     = "activity-service"
+  image              = local.image["activity-service"]
+  command            = ["node", "--disable-warning=TimeoutNegativeWarning", "dist/server.js"]
+  cpu                = 256
+  memory             = 512
+  port               = 3003
+  health_check_path  = "/health"
+  execution_role_arn = module.iam.execution_role_arn
+  task_role_arn      = module.iam.task_role_arns["activity-service"]
+  log_group_name     = module.logs.log_group_names["activity-service"]
+  region             = var.aws_region
+  environment = merge(local.common_env, local.db_env, local.kafka_env, {
+    PORT            = "3003"
+    KAFKA_CLIENT_ID = "activity-service"
+  })
+  secrets           = local.app_db
+  create_service    = true
+  cluster_arn       = module.cluster.cluster_arn
+  desired_count     = local.deployed ? 1 : 0
+  subnet_ids        = module.networking.public_subnet_ids
+  security_group_id = module.security.ids["activity_service"]
+}
+
+# Kafka → DEL board:{projectId} in Valkey (ADR-015). No ingress.
+module "cache_invalidator" {
+  source             = "../../modules/ecs-service"
+  name               = "${local.name}-cache-invalidator"
+  container_name     = "cache-invalidator"
+  image              = local.image["cache-invalidator"]
+  command            = ["node", "--disable-warning=TimeoutNegativeWarning", "dist/server.js"]
+  cpu                = 256
+  memory             = 512
+  port               = 3004
+  health_check_path  = "/health"
+  execution_role_arn = module.iam.execution_role_arn
+  task_role_arn      = module.iam.task_role_arns["cache-invalidator"]
+  log_group_name     = module.logs.log_group_names["cache-invalidator"]
+  region             = var.aws_region
+  environment = merge(local.common_env, local.kafka_env, {
+    PORT            = "3004"
+    KAFKA_CLIENT_ID = "cache-invalidator"
+    REDIS_URL       = "rediss://${module.redis.endpoint}:6379"
+  })
+  create_service    = var.enable_redis
+  cluster_arn       = module.cluster.cluster_arn
+  desired_count     = local.deployed ? 1 : 0
+  subnet_ids        = module.networking.public_subnet_ids
+  security_group_id = module.security.ids["cache_invalidator"]
+}
+
 # One-shot: apply migrations as the database owner, then (re)create the least-privilege app role.
 module "migrate" {
   source             = "../../modules/ecs-service"
@@ -155,20 +214,24 @@ resource "aws_ssm_parameter" "deploy_config" {
     web_bucket      = module.storage.web_bucket
     task_subnets    = module.networking.public_subnet_ids
     ecr             = module.ecr.repository_urls
-    services        = ["project-service", "api-gateway", "outbox-publisher"]
+    services        = concat(["project-service", "api-gateway", "outbox-publisher", "activity-service"], var.enable_redis ? ["cache-invalidator"] : [])
     families = {
-      "project-service"  = module.project_service.family
-      "api-gateway"      = module.api_gateway.family
-      "outbox-publisher" = module.outbox_publisher.family
-      "migrate"          = module.migrate.family
-      "kafka-tools"      = module.kafka_tools.family
+      "project-service"   = module.project_service.family
+      "api-gateway"       = module.api_gateway.family
+      "outbox-publisher"  = module.outbox_publisher.family
+      "activity-service"  = module.activity_service.family
+      "cache-invalidator" = module.cache_invalidator.family
+      "migrate"           = module.migrate.family
+      "kafka-tools"       = module.kafka_tools.family
     }
     security_groups = {
-      "project-service"  = module.security.ids["project_service"]
-      "api-gateway"      = module.security.ids["gateway"]
-      "outbox-publisher" = module.security.ids["outbox_publisher"]
-      "migrate"          = module.security.ids["tools"]
-      "kafka-tools"      = module.security.ids["tools"]
+      "project-service"   = module.security.ids["project_service"]
+      "api-gateway"       = module.security.ids["gateway"]
+      "outbox-publisher"  = module.security.ids["outbox_publisher"]
+      "activity-service"  = module.security.ids["activity_service"]
+      "cache-invalidator" = module.security.ids["cache_invalidator"]
+      "migrate"           = module.security.ids["tools"]
+      "kafka-tools"       = module.security.ids["tools"]
     }
     log_groups = module.logs.log_group_names
     rds = {

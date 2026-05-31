@@ -5,8 +5,8 @@ locals {
   name       = "dpp-${var.environment}"
   account_id = data.aws_caller_identity.current.account_id
   azs        = slice(data.aws_availability_zones.available.names, 0, 2)
-  services   = ["api-gateway", "project-service", "outbox-publisher", "migrate", "kafka-tools"]
-  images     = ["api-gateway", "project-service", "outbox-publisher", "kafka-tools"]
+  services   = ["api-gateway", "project-service", "outbox-publisher", "migrate", "kafka-tools", "activity-service", "cache-invalidator"]
+  images     = ["api-gateway", "project-service", "outbox-publisher", "kafka-tools", "activity-service", "cache-invalidator"]
 
   # The deployed image tag (git SHA) lives in SSM: CI updates it, Terraform reads it back, so both
   # always agree on what runs. Until the first build it is "bootstrap" and services run 0 tasks.

@@ -11,7 +11,8 @@ printf '\n%-18s %s\n' "App URL" "$(cfg 'c["app_url"]')"
 printf '%-18s %s\n' "Deployed image" "$(aws ssm get-parameter --name "/${NAME_PREFIX}/image-tag" --query Parameter.Value --output text)"
 
 printf '\n%s\n' "ECS services (cluster $cluster)"
-aws ecs describe-services --cluster "$cluster" --services project-service api-gateway outbox-publisher \
+# shellcheck disable=SC2046
+aws ecs describe-services --cluster "$cluster" --services $(cfg '" ".join(c["services"])') \
   --query 'services[].[serviceName,desiredCount,runningCount,deployments[0].rolloutState,split(`:`, taskDefinition)[-1]]' \
   --output text | awk '{printf "  %-18s desired=%s running=%s rollout=%-12s taskdef-rev=%s\n",$1,$2,$3,$4,$5}'
 

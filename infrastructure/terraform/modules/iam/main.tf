@@ -62,7 +62,9 @@ resource "aws_iam_role_policy" "execution_secrets" {
 locals {
   msk_topics = "${replace(var.msk_cluster_arn, ":cluster/", ":topic/")}/*"
   msk_groups = "${replace(var.msk_cluster_arn, ":cluster/", ":group/")}/*"
-  task_roles = ["api-gateway", "project-service", "outbox-publisher", "migrate", "kafka-tools"]
+  task_roles = ["api-gateway", "project-service", "outbox-publisher", "migrate", "kafka-tools", "activity-service", "cache-invalidator"]
+  # Kafka consumers: each role may join only its own consumer group (= its logical name).
+  msk_consumers = ["activity-service", "cache-invalidator"]
 }
 
 resource "aws_iam_role" "task" {
@@ -85,7 +87,7 @@ data "aws_iam_policy_document" "ecs_exec" {
 }
 
 resource "aws_iam_role_policy" "ecs_exec" {
-  for_each = toset(["api-gateway", "project-service", "outbox-publisher"])
+  for_each = toset(["api-gateway", "project-service", "outbox-publisher", "activity-service", "cache-invalidator"])
   name     = "ecs-exec"
   role     = aws_iam_role.task[each.key].id
   policy   = data.aws_iam_policy_document.ecs_exec.json
@@ -100,6 +102,29 @@ data "aws_iam_policy_document" "msk_publisher" {
     actions   = ["kafka-cluster:DescribeTopic", "kafka-cluster:WriteData"]
     resources = [local.msk_topics]
   }
+}
+
+data "aws_iam_policy_document" "msk_consumer" {
+  for_each = toset(local.msk_consumers)
+  statement {
+    actions   = ["kafka-cluster:Connect", "kafka-cluster:DescribeCluster"]
+    resources = [var.msk_cluster_arn]
+  }
+  statement {
+    actions   = ["kafka-cluster:DescribeTopic", "kafka-cluster:ReadData"]
+    resources = [local.msk_topics]
+  }
+  statement {
+    actions   = ["kafka-cluster:AlterGroup", "kafka-cluster:DescribeGroup"]
+    resources = ["${replace(var.msk_cluster_arn, ":cluster/", ":group/")}/${each.key}"]
+  }
+}
+
+resource "aws_iam_role_policy" "msk_consumer" {
+  for_each = toset(local.msk_consumers)
+  name     = "msk-consume"
+  role     = aws_iam_role.task[each.key].id
+  policy   = data.aws_iam_policy_document.msk_consumer[each.key].json
 }
 
 resource "aws_iam_role_policy" "msk_publisher" {

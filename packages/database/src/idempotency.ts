@@ -147,6 +147,6 @@ export function createIdempotentHandler(options: IdempotentHandlerOptions) {
     const durationMs = Math.round(performance.now() - started);
     options.onOutcome?.(outcome, event, durationMs);
     if (outcome === 'duplicate') log.info({ durationMs }, 'duplicate event skipped');
-    else log.debug({ durationMs }, 'event processed');
+    else log.info({ durationMs }, 'event processed');
   };
 }
