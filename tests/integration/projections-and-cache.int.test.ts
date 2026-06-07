@@ -457,7 +457,11 @@ describe('Phase 7: shared board cache with Kafka-driven invalidation', { timeout
   it('Redis outage: board reads fall back to PostgreSQL quickly and correctly; writes are unaffected; caching resumes by itself', async () => {
     const p = await newProject();
     const t = await createTask(p, 'x1');
+    await invalidatorCaughtUp();
     await board(p);
+    // A real cached entry exists before the outage, so a lost invalidation would leave it stale.
+    const cached = await board(p);
+    expect([cached.cache, titles(cached)]).toEqual(['HIT', ['x1']]);
     await redis.pause();
     try {
       const read = await board(p);

@@ -250,6 +250,45 @@ describe('failures', () => {
   });
 });
 
+describe('commit atomicity', () => {
+  it('a failure at COMMIT (after the activity insert) leaves neither the entry nor the marker; the redelivery applies it once', async () => {
+    const topic = await createTopic();
+    const projectId = randomUUID();
+    const [event] = eventsForTask(projectId);
+    // Fails the transaction at COMMIT time, after the activity row was written in it.
+    await database.pool.query(`
+      CREATE OR REPLACE FUNCTION fail_marker_commit() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.event_id = '${event!.eventId}' THEN RAISE EXCEPTION 'injected commit failure'; END IF;
+        RETURN NEW;
+      END $$ LANGUAGE plpgsql;
+      CREATE CONSTRAINT TRIGGER fail_marker_commit AFTER INSERT ON processed_events
+        DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fail_marker_commit();`);
+    let worker: Awaited<ReturnType<typeof startWorker>> | undefined;
+    try {
+      await publish(topic, [event!]);
+      worker = await startWorker(topic);
+      await waitFor(() => worker!.stats.failed >= 1, {
+        timeoutMs: 30_000,
+        description: 'a failed commit',
+      });
+      // Atomic: the activity insert rolled back with the marker.
+      expect(await activity(projectId)).toHaveLength(0);
+      expect(await markers([event!.eventId])).toBe(0);
+    } finally {
+      await database.pool.query('DROP TRIGGER IF EXISTS fail_marker_commit ON processed_events');
+    }
+    await waitForRows(projectId, 1);
+    await waitFor(() => worker.stats.processed >= 1, {
+      timeoutMs: 30_000,
+      description: 'processed once',
+    });
+    await worker.consumer.stop();
+    expect(await activity(projectId)).toHaveLength(1);
+    expect(await markers([event!.eventId])).toBe(1);
+  });
+});
+
 describe('downtime and catch-up', () => {
   it('events published while the service is down are applied after restart, in order, once each', async () => {
     const topic = await createTopic();
