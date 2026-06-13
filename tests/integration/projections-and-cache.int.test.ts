@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { createRedisClient } from '@dpp/cache';
 import type { DomainEvent } from '@dpp/contracts';
 import { createDatabase, runMigrations } from '@dpp/database';
 import { createKafkaClient, DomainEventProducer, ensureTopics, TOPICS } from '@dpp/kafka';
@@ -452,6 +453,42 @@ describe('Phase 7: shared board cache with Kafka-driven invalidation', { timeout
     expect(after.failed).toBe(before.failed);
     expect((await board(p)).cache).toBe('MISS');
     expect((await board(p)).cache).toBe('HIT');
+  });
+
+  it('failed invalidations are retried until they succeed, never acknowledged', async () => {
+    const p = await newProject();
+    const t = await createTask(p, 'before');
+    await invalidatorCaughtUp();
+    await board(p);
+    const cached = await board(p);
+    expect([cached.cache, titles(cached)]).toEqual(['HIT', ['before']]);
+
+    // Redis stays up for readers, but invalidations fail: INCR (used only by the invalidation
+    // script) is denied, so the script errors with NOPERM and deletes nothing.
+    const admin = createRedisClient({ url: redis.url, logger: pino({ level: 'silent' }) });
+    await waitFor(() => admin.status === 'ready', { description: 'admin connection' });
+    await admin.call('ACL', 'SETUSER', 'default', '-incr');
+    try {
+      await call('PATCH', `/tasks/${t.id}`, {
+        token: p.owner.token,
+        body: { expectedVersion: 1, title: 'after' },
+      });
+      await waitFor(
+        async () =>
+          (await call('GET', '/status', { base: invalidator!.url })).body.stats.failed > 0,
+        { timeoutMs: 30_000, description: 'an invalidation failing' },
+      );
+      const stale = await board(p);
+      expect([stale.cache, titles(stale)]).toEqual(['HIT', ['before']]);
+    } finally {
+      await admin.call('ACL', 'SETUSER', 'default', '+incr');
+      admin.disconnect();
+    }
+    // Not acknowledged, so Kafka redelivers it; once Redis accepts it, reads converge.
+    await waitFor(async () => titles(await board(p)).includes('after'), {
+      timeoutMs: 60_000,
+      description: 'the retried invalidation to land',
+    });
   });
 
   it('Redis outage: board reads fall back to PostgreSQL quickly and correctly; writes are unaffected; caching resumes by itself', async () => {
