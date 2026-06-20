@@ -349,6 +349,37 @@ describe('Phase 7: shared board cache with Kafka-driven invalidation', { timeout
     expect([again.cache, titles(again)]).toEqual(['HIT', ['new title']]);
   });
 
+  it('read-your-writes: the writer’s no-cache read is fresh even while invalidation lags; others see the old board until it lands', async () => {
+    const p = await newProject();
+    const t = await createTask(p, 'mine-old');
+    await invalidatorCaughtUp();
+    await board(p);
+    expect((await board(p)).cache).toBe('HIT');
+
+    await invalidator!.stop();
+    invalidator = undefined;
+    await call('PATCH', `/tasks/${t.id}`, {
+      token: p.owner.token,
+      body: { expectedVersion: 1, title: 'mine-new' },
+    });
+    const own = await fetch(`${gateway.url}/api/projects/${p.projectId}/board`, {
+      headers: { authorization: `Bearer ${p.owner.token}`, 'cache-control': 'no-cache' },
+    });
+    expect(own.headers.get('x-cache')).toBe('REFRESH');
+    const ownBody = (await own.json()) as { columns: { tasks: { title: string }[] }[] };
+    expect(ownBody.columns.flatMap((c) => c.tasks.map((x) => x.title))).toEqual(['mine-new']);
+    // The refresh also replaced the shared entry, so other readers are fresh now too.
+    const other = await board(p, replicaB.url);
+    expect([other.cache, titles(other)]).toEqual(['HIT', ['mine-new']]);
+
+    await startInvalidator();
+    await waitFor(async () => (await board(p)).cache === 'MISS', {
+      timeoutMs: 60_000,
+      description: 'late invalidation still applied',
+    });
+    expect(titles(await board(p))).toEqual(['mine-new']);
+  });
+
   it('invalidator outage with several changes: all are applied from the backlog; reads converge', async () => {
     const p = await newProject();
     const t = await createTask(p, 'a');

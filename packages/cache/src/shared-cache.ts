@@ -28,6 +28,8 @@ export interface CacheStats {
   /** Write-backs refused because the entry was invalidated during the read. */
   staleWritesSkipped: number;
   invalidations: number;
+  /** Reads that skipped the cache on request (read-your-writes) and refreshed it. */
+  refreshes: number;
 }
 
 export type CacheRead<T> =
@@ -65,6 +67,7 @@ export class SharedCache {
     writes: 0,
     staleWritesSkipped: 0,
     invalidations: 0,
+    refreshes: 0,
   };
   readonly #redis: Redis;
   readonly #log: Logger;
@@ -109,6 +112,26 @@ export class SharedCache {
     }
     this.stats.misses++;
     return { status: 'miss', generation: generation ?? '0' };
+  }
+
+  /**
+   * For a read that must not use the cached value (the client asked for fresh data): the
+   * current generation, to be passed to write() after reading PostgreSQL, or undefined if Redis
+   * is unavailable. Never throws.
+   */
+  async generationForRefresh(entry: CacheEntry): Promise<string | undefined> {
+    try {
+      const generation = await this.#redis.get(entry.generationKey);
+      this.stats.refreshes++;
+      return generation ?? '0';
+    } catch (err) {
+      this.stats.errors++;
+      this.#log.warn(
+        { err: describe(err), key: entry.key },
+        'cache read failed; using the database',
+      );
+      return undefined;
+    }
   }
 
   /** Stores a value read after a miss, unless it was invalidated meanwhile. Never throws. */

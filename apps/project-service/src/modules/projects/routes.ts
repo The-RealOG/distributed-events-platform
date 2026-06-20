@@ -35,11 +35,16 @@ export const projectRoutes: FastifyPluginAsyncZod<{
     '/projects/:id/board',
     { schema: { params: idParams, response: { 200: boardDto } } },
     async (request, reply) => {
+      const fresh = /\bno-cache\b/.test(request.headers['cache-control'] ?? '');
       const { board, cache } = await service.getBoardCached(
         principalOf(request),
         request.params.id,
+        {
+          fresh,
+        },
       );
-      // Diagnostic only (like a CDN's x-cache): HIT, MISS, or BYPASS (cache off/unavailable).
+      // Diagnostic only (like a CDN's x-cache): HIT, MISS, REFRESH (client asked for fresh
+      // data: read your own writes), or BYPASS (cache off/unavailable).
       void reply.header('x-cache', cache);
       return board;
     },

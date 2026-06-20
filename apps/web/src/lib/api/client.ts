@@ -22,10 +22,20 @@ export interface RequestOptions<S extends z.ZodType | undefined> {
 type Result<S> = S extends z.ZodType ? z.infer<S> : undefined;
 
 /**
+ * Read-your-writes across the server's shared cache (ADR-015): for a short time after this tab
+ * changed something, its reads ask the server to skip cached data (Cache-Control: no-cache), so
+ * the user never sees their own change missing while the asynchronous invalidation is in
+ * flight. Other users' reads are unaffected.
+ */
+export const READ_YOUR_WRITES_MS = 10_000;
+
+/**
  * The single place the browser talks HTTP. Owns the base URL, auth header, correlation IDs,
  * JSON handling and translation of every failure into an ApiError.
  */
 export class ApiClient {
+  #lastWriteAt = Number.NEGATIVE_INFINITY;
+
   constructor(private readonly options: ApiClientOptions) {}
 
   async request<S extends z.ZodType | undefined = undefined>(
@@ -41,6 +51,9 @@ export class ApiClient {
     const token = this.options.getToken();
     if (token) headers['authorization'] = `Bearer ${token}`;
     if (body !== undefined) headers['content-type'] = 'application/json';
+    if (method === 'GET' && Date.now() - this.#lastWriteAt < READ_YOUR_WRITES_MS) {
+      headers['cache-control'] = 'no-cache';
+    }
 
     const fetchImpl = this.options.fetchImpl ?? fetch;
     let response: Response;
@@ -65,6 +78,8 @@ export class ApiClient {
         payload = undefined;
       }
     }
+
+    if (method !== 'GET' && response.ok) this.#lastWriteAt = Date.now();
 
     if (!response.ok) {
       const error = toApiError(response.status, payload);

@@ -1,7 +1,7 @@
 import { taskDto } from '@dpp/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import { errorBody, urlOf } from '../../test/fakeBackend';
-import { ApiClient } from './client';
+import { ApiClient, READ_YOUR_WRITES_MS } from './client';
 import { ApiError } from './errors';
 
 function clientWith(respond: (url: string, init: RequestInit) => Response | Promise<Response>) {
@@ -23,6 +23,31 @@ const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 describe('ApiClient', () => {
+  it('asks for fresh reads (Cache-Control: no-cache) only for a short time after its own successful write', async () => {
+    vi.useFakeTimers();
+    try {
+      const { client, calls } = clientWith((_url, init) =>
+        init.method === 'PATCH' && typeof init.body === 'string' && init.body.includes('fail')
+          ? json(409, errorBody('VERSION_CONFLICT', 'stale'))
+          : new Response(null, { status: 204 }),
+      );
+      const cacheControl = (i: number) =>
+        (calls[i]!.init.headers as Record<string, string>)['cache-control'];
+
+      await client.request('GET', '/projects/p/board');
+      await client.request('PATCH', '/tasks/t', { body: { fail: true } }).catch(() => undefined);
+      await client.request('GET', '/projects/p/board');
+      await client.request('POST', '/tasks', { body: { title: 'x' } });
+      await client.request('GET', '/projects/p/board');
+      vi.advanceTimersByTime(READ_YOUR_WRITES_MS + 1);
+      await client.request('GET', '/projects/p/board');
+
+      expect([0, 2, 4, 5].map(cacheControl)).toEqual([undefined, undefined, 'no-cache', undefined]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('sends the bearer token, a fresh correlation ID per call, and JSON only with a body', async () => {
     const { client, calls } = clientWith(() => new Response(null, { status: 204 }));
     await client.request('GET', '/me');

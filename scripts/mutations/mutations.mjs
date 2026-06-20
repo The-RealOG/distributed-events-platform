@@ -653,8 +653,8 @@ export const mutations = [
     edits: [
       {
         file: BOARD_SERVICE,
-        find: '    await requireProjectRole(this.db, principal.userId, projectId, REQUIRED_ROLE.readProject);\n    const cached',
-        replace: '    const cached',
+        find: '    await requireProjectRole(this.db, principal.userId, projectId, REQUIRED_ROLE.readProject);\n    if (options.fresh) {',
+        replace: '    if (options.fresh) {',
       },
     ],
     tests: [SYSTEM_P67],
@@ -711,5 +711,20 @@ export const mutations = [
       },
     ],
     tests: [CACHE_INT],
+  },
+  {
+    id: 'p7-12-no-read-your-writes',
+    phase: 7,
+    title:
+      'the board route ignores Cache-Control: no-cache (the writer may read its change back stale)',
+    edits: [
+      {
+        file: 'apps/project-service/src/modules/projects/routes.ts',
+        find: "      const fresh = /\\bno-cache\\b/.test(request.headers['cache-control'] ?? '');",
+        replace:
+          "      const fresh = false && /no-cache/.test(request.headers['cache-control'] ?? '');",
+      },
+    ],
+    tests: [SYSTEM_P67],
   },
 ];

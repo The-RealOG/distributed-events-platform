@@ -1,7 +1,7 @@
 import { boardCacheEntry, type SharedCache } from '@dpp/cache';
 import { boardDto, type BoardDto } from '@dpp/contracts';
 
-export type CacheStatus = 'HIT' | 'MISS' | 'BYPASS';
+export type CacheStatus = 'HIT' | 'MISS' | 'REFRESH' | 'BYPASS';
 
 /**
  * The board read's view of the shared cache (ADR-015). The cached value is the project-level
@@ -13,6 +13,10 @@ export class BoardCache {
 
   read(projectId: string) {
     return this.shared.read(boardCacheEntry(projectId), boardDto);
+  }
+
+  generationForRefresh(projectId: string) {
+    return this.shared.generationForRefresh(boardCacheEntry(projectId));
   }
 
   write(projectId: string, generation: string, board: BoardDto) {

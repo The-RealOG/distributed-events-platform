@@ -187,6 +187,17 @@ describe('headers and identifiers', () => {
     expect(res.headers['x-request-id']).not.toBe('upstream-request-id');
   });
 
+  it('forwards Cache-Control (read-your-writes across the board cache)', async () => {
+    const upstream = await withUpstream();
+    const { app } = await gatewayFor(upstream.url);
+    await app.inject({
+      method: 'GET',
+      url: '/api/projects/abc/board',
+      headers: { 'cache-control': 'no-cache' },
+    });
+    expect(upstream.received[0]!.headers['cache-control']).toBe('no-cache');
+  });
+
   it('never forwards a client-supplied request ID upstream', async () => {
     const upstream = await withUpstream();
     const { app } = await gatewayFor(upstream.url);

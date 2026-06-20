@@ -19,6 +19,8 @@ export const PROJECT_SERVICE_PREFIXES = ['/auth/', '/me', '/workspaces', '/proje
 const FORWARDED_REQUEST_HEADERS = [
   'accept',
   'authorization',
+  // Read-your-writes: a client's `no-cache` makes the board read skip the shared cache.
+  'cache-control',
   'content-length',
   'content-type',
   'user-agent',

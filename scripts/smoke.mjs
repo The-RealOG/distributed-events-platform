@@ -6,18 +6,24 @@ import { randomUUID } from 'node:crypto';
 const base = process.argv[2] ?? 'http://localhost:3000/api';
 const correlationId = `smoke-${randomUUID()}`;
 
-async function call(method, path, { token, body } = {}) {
+async function call(method, path, { token, body, fresh } = {}) {
   const res = await fetch(base + path, {
     method,
     headers: {
       'x-correlation-id': correlationId,
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...(body ? { 'content-type': 'application/json' } : {}),
+      // Read-your-writes across the shared board cache, as the web app does after its own changes.
+      ...(fresh ? { 'cache-control': 'no-cache' } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
-  return { status: res.status, body: text ? JSON.parse(text) : undefined };
+  return {
+    status: res.status,
+    body: text ? JSON.parse(text) : undefined,
+    cache: res.headers.get('x-cache'),
+  };
 }
 
 function expectStatus(label, res, status) {
@@ -93,12 +99,28 @@ expectStatus(
 );
 
 const after = expectStatus(
-  'read board again',
-  await call('GET', `/projects/${project.id}/board`, { token }),
+  'read board again (own writes, no-cache)',
+  await call('GET', `/projects/${project.id}/board`, { token, fresh: true }),
   200,
 );
 if (after.columns[1].tasks[0]?.title !== 'Renamed') {
   process.stderr.write('FAIL board does not reflect the move and rename\n');
   process.exit(1);
+}
+// Any other reader (normal read) sees the change once the event-driven invalidation lands.
+const started = Date.now();
+for (;;) {
+  const shared = await call('GET', `/projects/${project.id}/board`, { token });
+  if (shared.body?.columns?.[1]?.tasks?.[0]?.title === 'Renamed') {
+    process.stdout.write(
+      `ok   shared read converged in ${Date.now() - started} ms (x-cache ${shared.cache ?? 'n/a'})\n`,
+    );
+    break;
+  }
+  if (Date.now() - started > 30_000) {
+    process.stderr.write('FAIL shared board read did not converge within 30 s\n');
+    process.exit(1);
+  }
+  await new Promise((r) => setTimeout(r, 500));
 }
 process.stdout.write(`\nall checks passed; correlationId=${correlationId}\n`);

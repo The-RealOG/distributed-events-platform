@@ -70,10 +70,18 @@ export class ProjectService {
   async getBoardCached(
     principal: Principal,
     projectId: string,
+    options: { fresh?: boolean } = {},
   ): Promise<{ board: BoardDto; cache: CacheStatus }> {
     if (!this.boardCache)
       return { board: await this.getBoard(principal, projectId), cache: 'BYPASS' };
     await requireProjectRole(this.db, principal.userId, projectId, REQUIRED_ROLE.readProject);
+    if (options.fresh) {
+      // Read-your-writes: never serve the cached value, but refresh it for everyone else.
+      const generation = await this.boardCache.generationForRefresh(projectId);
+      const board = await this.getBoard(principal, projectId);
+      if (generation !== undefined) await this.boardCache.write(projectId, generation, board);
+      return { board, cache: generation === undefined ? 'BYPASS' : 'REFRESH' };
+    }
     const cached = await this.boardCache.read(projectId);
     if (cached.status === 'hit') return { board: cached.value, cache: 'HIT' };
     const board = await this.getBoard(principal, projectId);

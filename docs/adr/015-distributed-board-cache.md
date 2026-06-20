@@ -57,6 +57,22 @@ one extra miss. So duplicate deliveries of the same event are harmless, and a da
 trip per invalidation would buy nothing. Before adding deduplication, the question to ask is:
 is the side effect already idempotent?
 
+### Read your own writes
+
+The stale window must not apply to the person who made the change. Right after a successful
+write, the web client refetches the board, and it would otherwise read the pre-change entry
+(this was caught by the post-deploy smoke test in AWS). So:
+
+- For 10 s after a tab's own successful write, its GETs send `Cache-Control: no-cache`. That's
+  standard HTTP; the React code has no cache logic.
+- The gateway forwards that header.
+- The board read then skips the cached value, reads PostgreSQL, and refreshes the shared entry
+  (`x-cache: REFRESH`). The refresh uses the generation it read _before_ querying, so it can't
+  overwrite a newer invalidation.
+
+Other users stay eventually consistent. Their window is normally sub-second, and often zero,
+because the writer's refresh already replaced the shared entry.
+
 ### The stale window, and the one race we close
 
 Between a commit and its invalidation, the cache can serve the previous board:
