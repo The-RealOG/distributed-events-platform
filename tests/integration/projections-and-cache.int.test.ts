@@ -126,7 +126,7 @@ async function call(
   return {
     status: res.status,
     body,
-    cache: res.headers.get('x-cache'),
+    cache: res.headers.get('x-board-cache'),
     ms: performance.now() - started,
   };
 }
@@ -365,7 +365,7 @@ describe('Phase 7: shared board cache with Kafka-driven invalidation', { timeout
     const own = await fetch(`${gateway.url}/api/projects/${p.projectId}/board`, {
       headers: { authorization: `Bearer ${p.owner.token}`, 'cache-control': 'no-cache' },
     });
-    expect(own.headers.get('x-cache')).toBe('REFRESH');
+    expect(own.headers.get('x-board-cache')).toBe('REFRESH');
     const ownBody = (await own.json()) as { columns: { tasks: { title: string }[] }[] };
     expect(ownBody.columns.flatMap((c) => c.tasks.map((x) => x.title))).toEqual(['mine-new']);
     // The refresh also replaced the shared entry, so other readers are fresh now too.

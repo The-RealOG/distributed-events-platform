@@ -43,9 +43,10 @@ export const projectRoutes: FastifyPluginAsyncZod<{
           fresh,
         },
       );
-      // Diagnostic only (like a CDN's x-cache): HIT, MISS, REFRESH (client asked for fresh
+      // Diagnostic only, like a CDN's X-Cache (named apart: CloudFront overwrites X-Cache): HIT,
+      // MISS, REFRESH (client asked for fresh
       // data: read your own writes), or BYPASS (cache off/unavailable).
-      void reply.header('x-cache', cache);
+      void reply.header('x-board-cache', cache);
       return board;
     },
   );

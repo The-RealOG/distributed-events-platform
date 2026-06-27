@@ -36,7 +36,7 @@ async function call(method, path, { token, body, correlationId } = {}) {
   return {
     status: res.status,
     body: json,
-    cache: res.headers.get('x-cache'),
+    cache: res.headers.get('x-board-cache'),
     ms: Math.round(performance.now() - started),
   };
 }

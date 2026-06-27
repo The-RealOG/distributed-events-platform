@@ -67,7 +67,7 @@ write, the web client refetches the board, and it would otherwise read the pre-c
   standard HTTP; the React code has no cache logic.
 - The gateway forwards that header.
 - The board read then skips the cached value, reads PostgreSQL, and refreshes the shared entry
-  (`x-cache: REFRESH`). The refresh uses the generation it read _before_ querying, so it can't
+  (`x-board-cache: REFRESH`). The refresh uses the generation it read _before_ querying, so it can't
   overwrite a newer invalidation.
 
 Other users stay eventually consistent. Their window is normally sub-second, and often zero,
@@ -108,7 +108,7 @@ invalidator outage). It is not how freshness normally works.
 
 | Failure            | Behaviour                                                                                                                                                                                                                                   |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Redis down or slow | The client has no offline queue, no per-command retries and a 250 ms command timeout. Reads fall back to PostgreSQL (`x-cache: BYPASS`). Writes are unaffected. It reconnects by itself.                                                    |
+| Redis down or slow | The client has no offline queue, no per-command retries and a 250 ms command timeout. Reads fall back to PostgreSQL (`x-board-cache: BYPASS`). Writes are unaffected. It reconnects by itself.                                              |
 | Redis SET fails    | The PostgreSQL result is still returned.                                                                                                                                                                                                    |
 | Corrupt entry      | Treated as a miss and deleted.                                                                                                                                                                                                              |
 | Invalidator down   | Writes continue, and boards may be stale. On restart it consumes the backlog from its committed offsets. A new group starts from the beginning of the topic: replaying only forces misses, while starting at "latest" could skip a backlog. |
@@ -129,7 +129,7 @@ show it matters, per-process request coalescing is the first step.
 
 ### Observability now, metrics later
 
-- An `x-cache: HIT | MISS | BYPASS` response header. It is diagnostic only, like a CDN's; the
+- An `x-board-cache: HIT | MISS | BYPASS` response header. It is diagnostic only, like a CDN's; the
   web app ignores it.
 - Project Service `/status` (internal, not routed by the gateway) exposes hits, misses, errors,
   corrupt entries, writes, skipped stale writes and invalidations.
@@ -150,5 +150,5 @@ PostgreSQL. They are independent, and the web app has no Redis-specific logic.
 - In AWS: one `cache.t4g.micro` Valkey node ($0.0128/h in us-east-2), TLS in transit,
   encrypted at rest, in the data subnets. Only the project-service and cache-invalidator
   security groups can reach it. There is no AUTH token; access is by network only.
-- The cache is optional (`CACHE_ENABLED`). With it off, `x-cache: BYPASS` and behaviour is
+- The cache is optional (`CACHE_ENABLED`). With it off, `x-board-cache: BYPASS` and behaviour is
   identical except for speed.

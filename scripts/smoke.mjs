@@ -22,7 +22,7 @@ async function call(method, path, { token, body, fresh } = {}) {
   return {
     status: res.status,
     body: text ? JSON.parse(text) : undefined,
-    cache: res.headers.get('x-cache'),
+    cache: res.headers.get('x-board-cache'),
   };
 }
 
@@ -113,7 +113,7 @@ for (;;) {
   const shared = await call('GET', `/projects/${project.id}/board`, { token });
   if (shared.body?.columns?.[1]?.tasks?.[0]?.title === 'Renamed') {
     process.stdout.write(
-      `ok   shared read converged in ${Date.now() - started} ms (x-cache ${shared.cache ?? 'n/a'})\n`,
+      `ok   shared read converged in ${Date.now() - started} ms (x-board-cache ${shared.cache ?? 'n/a'})\n`,
     );
     break;
   }
