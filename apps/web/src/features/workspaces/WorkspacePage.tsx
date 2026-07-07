@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
+import { Avatar, toneFor } from '../../components/Avatar';
+import { Icon } from '../../components/Icon';
 import { ErrorNotice, Loading } from '../../components/ErrorNotice';
 import { describeError, isApiError } from '../../lib/api/errors';
 import { useApi } from '../../lib/AppProviders';
@@ -22,13 +24,15 @@ export function WorkspacePage() {
   const canManage = workspace.data.role === 'OWNER' || workspace.data.role === 'ADMIN';
 
   return (
-    <section className="stack">
-      <p>
-        <Link to="/workspaces">← Workspaces</Link>
-      </p>
-      <h1>
-        {workspace.data.name} <span className="badge">{workspace.data.role}</span>
-      </h1>
+    <section className="page">
+      <div className="page-header">
+        <div>
+          <h1>
+            {workspace.data.name} <span className="badge">{workspace.data.role}</span>
+          </h1>
+          <p className="muted">Projects and people in this workspace.</p>
+        </div>
+      </div>
       <Projects workspaceId={workspaceId} canCreate={canManage} />
       <Members
         workspaceId={workspaceId}
@@ -64,24 +68,33 @@ function Projects({ workspaceId, canCreate }: { workspaceId: string; canCreate: 
   };
 
   return (
-    <section className="stack">
-      <h2>Projects</h2>
+    <section className="stack" id="projects">
+      <h2 className="section-title">Projects</h2>
       {projects.isPending && <Loading label="Loading projects" />}
       {projects.isError && (
         <ErrorNotice error={projects.error} onRetry={() => void projects.refetch()} />
       )}
       {projects.data?.length === 0 && <p className="muted">No projects yet.</p>}
       {projects.data && projects.data.length > 0 && (
-        <ul className="list">
+        <ul className="card-grid">
           {projects.data.map((p) => (
             <li key={p.id}>
-              <Link to={`/projects/${p.id}`}>{p.name}</Link>
+              <Link to={`/projects/${p.id}`} className="card tile">
+                <span className="tile-mark" style={{ background: toneFor(p.id) }}>
+                  <Icon name="board" size={18} />
+                </span>
+                <span className="tile-body">
+                  <span className="tile-title">{p.name}</span>
+                  {p.description && <span className="muted small">{p.description}</span>}
+                </span>
+                <Icon name="chevronRight" />
+              </Link>
             </li>
           ))}
         </ul>
       )}
       {canCreate ? (
-        <form onSubmit={submit} className="inline-form" aria-label="Create project">
+        <form onSubmit={submit} className="card inline-form" aria-label="Create project">
           <label>
             New project name
             <input
@@ -91,7 +104,7 @@ function Projects({ workspaceId, canCreate }: { workspaceId: string; canCreate: 
               onChange={(e) => setName(e.target.value)}
             />
           </label>
-          <button type="submit" disabled={create.isPending}>
+          <button type="submit" className="btn btn-primary" disabled={create.isPending}>
             {create.isPending ? 'Creating…' : 'Create project'}
           </button>
         </form>
@@ -136,24 +149,28 @@ function Members({
   };
 
   return (
-    <section className="stack">
-      <h2>Members</h2>
+    <section className="stack" id="members">
+      <h2 className="section-title">Members</h2>
       {members.isPending && <Loading label="Loading members" />}
       {members.isError && (
         <ErrorNotice error={members.error} onRetry={() => void members.refetch()} />
       )}
       {members.data && (
-        <ul className="list">
+        <ul className="card member-list">
           {members.data.map((m) => (
             <li key={m.userId}>
-              {m.displayName} <span className="muted">{m.email}</span>{' '}
+              <Avatar id={m.userId} name={m.displayName} size={32} />
+              <span className="member-body">
+                <span className="member-name">{m.displayName}</span>
+                <span className="muted small">{m.email}</span>
+              </span>
               <span className="badge">{m.role}</span>
             </li>
           ))}
         </ul>
       )}
       {grantable.length > 0 && (
-        <form onSubmit={submit} className="inline-form" aria-label="Add member">
+        <form onSubmit={submit} className="card inline-form" aria-label="Add member">
           <label>
             Member email
             <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -168,7 +185,7 @@ function Members({
               ))}
             </select>
           </label>
-          <button type="submit" disabled={add.isPending}>
+          <button type="submit" className="btn btn-primary" disabled={add.isPending}>
             {add.isPending ? 'Adding…' : 'Add member'}
           </button>
         </form>

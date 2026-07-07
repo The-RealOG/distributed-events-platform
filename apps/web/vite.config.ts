@@ -3,7 +3,16 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [react()],
-  server: { port: 5173, strictPort: true },
+  server: {
+    port: 5173,
+    strictPort: true,
+    // Optional: develop the UI against a deployed backend (e.g. the AWS dev environment) with
+    // VITE_API_BASE_URL=/api and VITE_DEV_PROXY_TARGET=https://<cloudfront-domain>. Same-origin,
+    // so no CORS changes on the gateway.
+    ...(process.env['VITE_DEV_PROXY_TARGET']
+      ? { proxy: { '/api': { target: process.env['VITE_DEV_PROXY_TARGET'], changeOrigin: true } } }
+      : {}),
+  },
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],

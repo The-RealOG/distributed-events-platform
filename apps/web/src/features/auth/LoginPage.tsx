@@ -4,6 +4,7 @@ import { Navigate, useNavigate, useSearchParams } from 'react-router';
 import { config } from '../../config';
 import { describeError } from '../../lib/api/errors';
 import { useApi, useSession } from '../../lib/AppProviders';
+import { Icon } from '../../components/Icon';
 
 function safeReturnPath(value: string | null): string {
   // Only same-app paths; never redirect to another origin after login.
@@ -39,7 +40,13 @@ export function LoginPage({
   };
 
   return (
-    <main className="login">
+    <main className="login card">
+      <div className="login-brand">
+        <span className="brand-mark">
+          <Icon name="logo" size={20} />
+        </span>
+        Project Platform
+      </div>
       <h1>Sign in</h1>
       {endedBecause === 'expired' && (
         <p role="alert" className="notice notice-info">
@@ -75,7 +82,7 @@ export function LoginPage({
               {describeError(login.error)}
             </p>
           )}
-          <button type="submit" disabled={login.isPending}>
+          <button type="submit" className="btn btn-primary btn-block" disabled={login.isPending}>
             {login.isPending ? 'Signing in…' : 'Sign in'}
           </button>
         </form>

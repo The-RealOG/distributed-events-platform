@@ -32,7 +32,7 @@ describe('board', () => {
     expect(
       todo.getAllByRole('listitem').map((li) => li.querySelector('.task-title')?.textContent),
     ).toEqual(['First', 'Second', 'Third']);
-    expect(within(columnRegion('In Progress')).getByText('No tasks')).toBeInTheDocument();
+    expect(within(columnRegion('In Progress')).getByText('No tasks yet')).toBeInTheDocument();
   });
 
   it('moves a task by sending its version and an anchor, then refetches the board', async () => {

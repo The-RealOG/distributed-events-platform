@@ -29,8 +29,9 @@ test('project CRUD works end to end while Kafka is stopped', async ({ browser, r
   const page = await context.newPage();
   await page.goto(`/projects/${seed.projectId}`);
 
+  await column(page, 'To Do').getByRole('button', { name: 'Add a task', exact: true }).click();
   await page.getByLabel('New task in To Do').fill('Works without Kafka');
-  await column(page, 'To Do').getByRole('button', { name: 'Add task' }).click();
+  await column(page, 'To Do').getByRole('button', { name: 'Add task', exact: true }).click();
   const card = column(page, 'To Do').getByRole('button', {
     name: 'Works without Kafka',
     exact: true,

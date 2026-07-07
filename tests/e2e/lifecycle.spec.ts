@@ -32,13 +32,14 @@ test('full task lifecycle through browser → gateway → project-service → Po
   await page.getByRole('button', { name: 'Create project' }).click();
   await expect(page.getByRole('heading', { name: 'Launch' })).toBeVisible();
   for (const name of ['To Do', 'In Progress', 'Done']) {
-    await expect(column(page, name).getByText('No tasks')).toBeVisible();
+    await expect(column(page, name).getByText(/^No (completed )?tasks yet$/)).toBeVisible();
   }
   const projectId = /\/projects\/([^/]+)/.exec(page.url())![1]!;
 
   // 4. Create a task.
+  await column(page, 'To Do').getByRole('button', { name: 'Add a task', exact: true }).click();
   await page.getByLabel('New task in To Do').fill('Write spec');
-  await column(page, 'To Do').getByRole('button', { name: 'Add task' }).click();
+  await column(page, 'To Do').getByRole('button', { name: 'Add task', exact: true }).click();
   await expect(
     column(page, 'To Do').getByRole('button', { name: 'Write spec', exact: true }),
   ).toBeVisible();
@@ -70,7 +71,7 @@ test('full task lifecycle through browser → gateway → project-service → Po
   await expect(
     column(page, 'In Progress').getByRole('button', { name: 'Write the spec', exact: true }),
   ).toBeVisible();
-  await expect(column(page, 'To Do').getByText('No tasks')).toBeVisible();
+  await expect(column(page, 'To Do').getByText('No tasks yet')).toBeVisible();
 
   // The server agrees (authoritative check through the gateway, not the UI).
   const token = await page.evaluate(() => localStorage.getItem('dpp.session.token'));
@@ -87,7 +88,7 @@ test('full task lifecycle through browser → gateway → project-service → Po
   await dialog.getByRole('button', { name: 'Delete task' }).click();
   await dialog.getByRole('button', { name: 'Confirm delete' }).click();
   await expect(page.getByText('Task deleted.')).toBeVisible();
-  await expect(column(page, 'In Progress').getByText('No tasks')).toBeVisible();
+  await expect(column(page, 'In Progress').getByText('No tasks yet')).toBeVisible();
   expect((await client.get(`/tasks/${moved.id}`)).status).toBe(404);
 
   // Traffic went through the gateway only.

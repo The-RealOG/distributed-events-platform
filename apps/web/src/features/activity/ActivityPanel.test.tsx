@@ -56,10 +56,14 @@ describe('activity panel', () => {
     });
     const panel = await screen.findByRole('complementary', { name: 'Activity' });
     expect(
-      await within(panel).findByText('Ada moved “Spec” from “To Do” to “In Progress”'),
+      await within(panel).findByRole('listitem', {
+        name: 'Ada moved “Spec” from “To Do” to “In Progress”',
+      }),
     ).toBeInTheDocument();
     await userEvent.click(within(panel).getByRole('button', { name: 'Show older' }));
-    expect(await within(panel).findByText('Ada created “Spec” in “To Do”')).toBeInTheDocument();
+    expect(
+      await within(panel).findByRole('listitem', { name: 'Ada created “Spec” in “To Do”' }),
+    ).toBeInTheDocument();
     expect(within(panel).queryByRole('button', { name: 'Show older' })).not.toBeInTheDocument();
   });
 
