@@ -1,10 +1,19 @@
 name: CI
 
 # Every pull request and every push to main. No AWS access: CI never touches the dev environment.
+#
+#   plan ──────────────► integration (matrix of balanced shards, affected-only off main)
+#   static  (format, lint, typecheck)          ┐
+#   unit    (unit + architecture guards, build) ├ in parallel, no Docker
+#   security (npm audit, gitleaks)             ┘
+#
+# Turbo's local cache is persisted between runs, so unchanged packages are not re-linted,
+# re-typechecked or re-built. Integration results are never cached (turbo.json).
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,36 +22,102 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+  # Concise logs on success; failures still print their full output.
+  TURBO_OUTPUT_LOGS: errors-only
+
 jobs:
-  checks:
+  plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      run: ${{ steps.plan.outputs.run }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - id: plan
+        run: >-
+          node scripts/ci/plan.mjs "${{ github.event_name }}" "${{ github.ref }}"
+          "${{ github.event.pull_request.base.sha || github.event.before }}"
+
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with: { node-version: 24, cache: npm }
+      - uses: actions/cache@v4
+        with:
+          path: .turbo/cache
+          key: turbo-static-${{ github.sha }}
+          restore-keys: turbo-
       - run: npm ci
       - run: npm run format:check
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm run test:unit
-      - run: npm run build
-      - name: Dependency audit (production dependencies)
+      - run: npx turbo run lint typecheck
+
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - uses: actions/cache@v4
+        with:
+          path: .turbo/cache
+          key: turbo-unit-${{ github.sha }}
+          restore-keys: turbo-
+      - run: npm ci
+      # Unit and component tests plus the architecture guards (tests/architecture, never cached).
+      - run: npx turbo run test build
+
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - name: Dependency audit (production dependencies; reads the lockfile, no install needed)
         run: npm audit --omit=dev --audit-level=high
       - name: Secret scan
         run: |
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar xz gitleaks
           ./gitleaks git --no-banner --redact -v
 
-  # Real PostgreSQL/Kafka via Testcontainers (Docker is available on GitHub runners).
+  # Real PostgreSQL/Kafka/Valkey via Testcontainers. Shards run in parallel on separate runners;
+  # each suite keeps its own containers and isolation, exactly as before.
   integration:
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.plan.outputs.matrix) }}
+    name: integration (${{ matrix.shard }})
     steps:
       - uses: actions/checkout@v4
+      # Start pulling the pinned test images while dependencies install (Testcontainers joins an
+      # in-progress pull instead of starting another).
+      - name: Pre-pull container images
+        run: |
+          for image in postgres:17-alpine apache/kafka:4.1.1 valkey/valkey:8-alpine testcontainers/ryuk:0.14.0; do
+            nohup docker pull -q "$image" > /dev/null 2>&1 &
+          done
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: npm }
+      - uses: actions/cache@v4
+        with:
+          path: .turbo/cache
+          key: turbo-integration-${{ matrix.shard }}-${{ github.sha }}
+          restore-keys: turbo-
       - run: npm ci
-      - run: npm run build
-      - run: npm run test:docker
+      - run: npx turbo run test:integration ${{ matrix.filters }} --concurrency=1

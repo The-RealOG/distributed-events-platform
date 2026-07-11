@@ -41,6 +41,12 @@ export interface DomainEventConsumerOptions {
   fromBeginning?: boolean;
   hooks?: ConsumerHooks;
   sessionTimeoutMs?: number;
+  /**
+   * Longest time a fetch waits on the broker for new data. stop() waits for the fetch in flight,
+   * so this bounds shutdown (and every rolling deploy) when idle. KafkaJS defaults to 5 s; 1 s
+   * costs one idle fetch per second and makes stop() about 1 s instead of 5 s.
+   */
+  maxWaitTimeMs?: number;
 }
 
 /**
@@ -80,6 +86,7 @@ export class DomainEventConsumer {
       groupId: options.groupId,
       allowAutoTopicCreation: false,
       sessionTimeout: options.sessionTimeoutMs ?? 30_000,
+      maxWaitTimeInMs: options.maxWaitTimeMs ?? 1_000,
     });
     this.#consumer.on(this.#consumer.events.CRASH, ({ payload }) => {
       if (!payload.restart) this.#crashed = true;

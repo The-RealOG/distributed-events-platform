@@ -452,7 +452,8 @@ partition, offset, key}`. Any failure rejects with `PublishError`, and nothing i
   **At-least-once: duplicates are possible and expected.** Handlers with side effects wrap them
   in `createIdempotentHandler` (next section).
 - `stop()` stops fetching, waits for the in-flight handler, commits and leaves the group. It is
-  bounded (default 10 s). Observed: about 5 s, the length of the fetch long-poll.
+  bounded (default 10 s). It takes about as long as the fetch long-poll: 1 s (`maxWaitTimeMs`;
+  KafkaJS’s own default of 5 s made every stop and rolling deploy take ~5 s).
 
 ### Idempotent consumption (Phase 5)
 

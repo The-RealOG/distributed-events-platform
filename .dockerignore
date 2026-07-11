@@ -1,8 +1,20 @@
+# Build context for infrastructure/docker/*.Dockerfile: only sources and manifests are needed.
 **/node_modules
 **/dist
 **/.turbo
 **/coverage
+**/test-results
+**/playwright-report
+**/*.log
 .git
+.github
 .env
 .env.*
 !.env.example
+infrastructure/terraform
+docs
+.DS_Store
+.idea
+.vscode
+*.tfstate*
+*.tfplan

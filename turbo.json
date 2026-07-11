@@ -23,5 +23,6 @@
       "dependsOn": ["^build"],
       "cache": false
     }
-  }
+  },
+  "globalDependencies": ["tsconfig.base.json", "eslint.config.js", ".prettierrc.json"]
 }
