@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Decides which integration shards CI runs (written to $GITHUB_OUTPUT as a job matrix).
 //
+//   docs-only change            → none, on any branch (documentation cannot change behaviour)
 //   main / manual runs          → every shard (the full distributed-system suite)
-//   docs-only change            → none (documentation cannot change behaviour)
 //   shared config/tooling change → every shard
 //   otherwise                   → shards containing a package whose integration tests are
 //                                  affected: the changed package or anything depending on it,
@@ -57,19 +57,22 @@ const [event, ref, base] = process.argv.slice(2);
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
 
 function decide() {
+  let changed;
+  if (base && !/^0+$/.test(base)) {
+    try {
+      changed = git('diff', '--name-only', `${base}...HEAD`).split('\n').filter(Boolean);
+    } catch {
+      changed = undefined; // base not in history (force push): treat as unknown
+    }
+  }
+  // Documentation cannot change behaviour, on any branch.
+  if (changed && changed.length > 0 && changed.every((f) => DOCS.test(f))) {
+    return { shards: [], reason: 'documentation only' };
+  }
   if (event === 'workflow_dispatch' || ref === 'refs/heads/main') {
     return { shards: ALL, reason: 'main or manual run: full suite' };
   }
-  if (!base || /^0+$/.test(base)) return { shards: ALL, reason: 'no base commit: full suite' };
-  let changed;
-  try {
-    changed = git('diff', '--name-only', `${base}...HEAD`).split('\n').filter(Boolean);
-  } catch {
-    return { shards: ALL, reason: 'base not in history: full suite' };
-  }
-  if (changed.length > 0 && changed.every((f) => DOCS.test(f))) {
-    return { shards: [], reason: 'documentation only' };
-  }
+  if (!changed) return { shards: ALL, reason: 'no usable base commit: full suite' };
   if (changed.some((f) => GLOBAL.test(f))) return { shards: ALL, reason: 'shared tooling changed' };
   const dry = JSON.parse(
     execFileSync(
