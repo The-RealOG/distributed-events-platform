@@ -1,6 +1,6 @@
 import type { BoardColumnDto, BoardDto, TaskDto } from '@dpp/contracts';
 import { useQuery } from '@tanstack/react-query';
-import { useState, type FormEvent } from 'react';
+import { useState, type DragEvent, type FormEvent, type ReactNode } from 'react';
 import { Outlet, useNavigate, useParams, useSearchParams } from 'react-router';
 import { Avatar } from '../../components/Avatar';
 import { ErrorNotice, Loading } from '../../components/ErrorNotice';
@@ -9,7 +9,7 @@ import { describeError } from '../../lib/api/errors';
 import { useApi } from '../../lib/AppProviders';
 import { queryKeys } from '../../lib/query/keys';
 import { ActivityPanel } from '../activity/ActivityPanel';
-import { moveTargets } from './moves';
+import { applyMove, dropTarget, moveTargets, type MoveRequest } from './moves';
 import { useTaskMutations } from './useTaskMutations';
 
 type Tone = 'todo' | 'progress' | 'done';
@@ -20,6 +20,32 @@ const toneOf = (index: number, count: number): Tone =>
 interface Filters {
   text: string;
   assignee: string; // '' = anyone, 'none' = unassigned, else a user id
+}
+
+/** Drag data type for a task card; lets drop targets recognise our drags synchronously. */
+const TASK_DRAG_TYPE = 'application/x-dpp-task';
+
+/** Drag and drop state: the card being dragged and where it would land. */
+interface DragState {
+  taskId: string;
+  over?: { columnId: string; beforeTaskId: string | null } | undefined;
+}
+interface DnD {
+  drag: DragState | null;
+  start: (taskId: string) => void;
+  over: (columnId: string, beforeTaskId: string | null) => void;
+  drop: (taskId: string, columnId: string, beforeTaskId: string | null) => void;
+  end: () => void;
+}
+
+/** The card the pointer is above the middle of, i.e. the card a drop would land before. */
+function cardBelowPointer(event: DragEvent<HTMLElement>): string | null {
+  const cards = event.currentTarget.querySelectorAll<HTMLElement>('[data-task-id]');
+  for (const card of cards) {
+    const rect = card.getBoundingClientRect();
+    if (event.clientY < rect.top + rect.height / 2) return card.dataset['taskId'] ?? null;
+  }
+  return null;
 }
 
 const matches = (task: TaskDto, f: Filters) => {
@@ -41,6 +67,14 @@ export function BoardPage() {
     queryKey: queryKeys.board(projectId),
     queryFn: ({ signal }) => api.getBoard(projectId, signal),
   });
+  const { move } = useTaskMutations(projectId);
+  const [drag, setDrag] = useState<DragState | null>(null);
+  // A dropped card is shown in its new place until the refetched board confirms it (or the
+  // move fails, which refreshes the board and reports why). Local display state only: the
+  // board itself is always the server's.
+  const [pending, setPending] = useState<{ taskId: string; to: MoveRequest; since: number } | null>(
+    null,
+  );
   const workspaceId = board.data?.project.workspaceId ?? '';
   const members = useQuery({
     queryKey: queryKeys.workspaceMembers(workspaceId),
@@ -54,6 +88,30 @@ export function BoardPage() {
   if (!board.data) return <ErrorNotice error={board.error} onRetry={() => void board.refetch()} />;
 
   const { project } = board.data;
+  // Shown until a board fetched after the drop arrives (or the move fails).
+  const optimistic =
+    pending && !move.isError && board.dataUpdatedAt <= pending.since ? pending : null;
+  const shown = optimistic ? applyMove(board.data, optimistic.taskId, optimistic.to) : board.data;
+  const dnd: DnD = {
+    drag,
+    start: (taskId) => setDrag({ taskId }),
+    over: (columnId, beforeTaskId) =>
+      setDrag((d) =>
+        d && (d.over?.columnId !== columnId || d.over.beforeTaskId !== beforeTaskId)
+          ? { ...d, over: { columnId, beforeTaskId } }
+          : d,
+      ),
+    drop: (taskId, columnId, beforeTaskId) => {
+      setDrag(null);
+      if (!taskId || move.isPending) return;
+      const task = board.data.columns.flatMap((c) => c.tasks).find((t) => t.id === taskId);
+      const to = dropTarget(board.data, taskId, columnId, beforeTaskId);
+      if (!task || !to) return;
+      setPending({ taskId, to, since: board.dataUpdatedAt });
+      move.mutate({ task, to }, { onError: () => setPending(null) });
+    },
+    end: () => setDrag(null),
+  };
   const names = new Map((members.data ?? []).map((m) => [m.userId, m.displayName]));
   const filtering = filters.text.trim() !== '' || filters.assignee !== '';
   const setView = (next: 'board' | 'activity') =>
@@ -163,10 +221,11 @@ export function BoardPage() {
 
           <div className="board-layout">
             <div className="board">
-              {board.data.columns.map((column, index) => (
+              {shown.columns.map((column, index) => (
                 <Column
                   key={column.id}
-                  board={board.data}
+                  board={shown}
+                  dnd={dnd}
                   column={column}
                   tone={toneOf(index, board.data.columns.length)}
                   filters={filters}
@@ -187,6 +246,7 @@ export function BoardPage() {
 
 function Column({
   board,
+  dnd,
   column,
   tone,
   filters,
@@ -195,6 +255,7 @@ function Column({
   onCompose,
 }: {
   board: BoardDto;
+  dnd: DnD;
   column: BoardColumnDto;
   tone: Tone;
   filters: Filters;
@@ -205,6 +266,23 @@ function Column({
   const { create } = useTaskMutations(board.project.id);
   const [title, setTitle] = useState('');
   const visible = column.tasks.filter((t) => matches(t, filters));
+  const target = dnd.drag?.over?.columnId === column.id ? dnd.drag.over : undefined;
+  const dropProps = {
+    onDragOver: (e: DragEvent<HTMLElement>) => {
+      // Decided from the drag data, not React state: the first dragover can arrive before the
+      // re-render that follows dragstart, and a drop only happens if dragover was cancelled.
+      if (!e.dataTransfer.types.includes(TASK_DRAG_TYPE)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      dnd.over(column.id, cardBelowPointer(e));
+    },
+    onDrop: (e: DragEvent<HTMLElement>) => {
+      const taskId = e.dataTransfer.getData(TASK_DRAG_TYPE);
+      if (!taskId) return;
+      e.preventDefault();
+      dnd.drop(taskId, column.id, cardBelowPointer(e));
+    },
+  };
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -221,7 +299,11 @@ function Column({
   };
 
   return (
-    <section className={`column tone-${tone}`} aria-labelledby={`col-${column.id}`}>
+    <section
+      className={target ? `column tone-${tone} drop-target` : `column tone-${tone}`}
+      aria-labelledby={`col-${column.id}`}
+      {...dropProps}
+    >
       <header className="column-header">
         <span className={`status-ring ring-${tone}`} aria-hidden="true" />
         <h2 id={`col-${column.id}`}>
@@ -240,14 +322,21 @@ function Column({
       </header>
 
       {column.tasks.length === 0 ? (
+        // Stays in place while dragging over (the column highlights): replacing the element
+        // under the pointer mid-drag makes browsers drop the drop.
         <EmptyColumn tone={tone} />
       ) : visible.length === 0 ? (
         <p className="muted small no-match">No matching tasks</p>
       ) : (
         <ol className="tasks">
           {visible.map((task) => (
-            <TaskCard key={task.id} board={board} task={task} tone={tone} names={names} />
+            <DropSlot key={task.id} show={target?.beforeTaskId === task.id}>
+              <TaskCard board={board} task={task} tone={tone} names={names} dnd={dnd} />
+            </DropSlot>
           ))}
+          {target && target.beforeTaskId === null && (
+            <li className="drop-indicator" aria-hidden="true" />
+          )}
         </ol>
       )}
 
@@ -337,16 +426,27 @@ function EmptyColumn({ tone }: { tone: Tone }) {
   );
 }
 
+function DropSlot({ show, children }: { show: boolean; children: ReactNode }) {
+  return (
+    <>
+      {show && <li className="drop-indicator" aria-hidden="true" />}
+      {children}
+    </>
+  );
+}
+
 function TaskCard({
   board,
   task,
   tone,
   names,
+  dnd,
 }: {
   board: BoardDto;
   task: TaskDto;
   tone: Tone;
   names: Map<string, string>;
+  dnd: DnD;
 }) {
   const navigate = useNavigate();
   const { move } = useTaskMutations(board.project.id);
@@ -354,7 +454,24 @@ function TaskCard({
   const busy = move.isPending;
 
   return (
-    <li className={`task-card accent-${tone}`}>
+    <li
+      className={
+        dnd.drag?.taskId === task.id
+          ? `task-card accent-${tone} dragging`
+          : `task-card accent-${tone}`
+      }
+      data-task-id={task.id}
+      // Drag across or within columns; the arrow buttons and column select remain the
+      // keyboard-accessible way to move.
+      draggable={!busy}
+      onDragStart={(e) => {
+        e.dataTransfer.setData(TASK_DRAG_TYPE, task.id);
+        e.dataTransfer.setData('text/plain', task.title);
+        e.dataTransfer.effectAllowed = 'move';
+        dnd.start(task.id);
+      }}
+      onDragEnd={dnd.end}
+    >
       <button
         type="button"
         className="task-title"

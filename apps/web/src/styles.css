@@ -979,3 +979,22 @@ label {
   border-top: 1px solid var(--border);
   padding-top: 0.75rem;
 }
+
+/* ---------------------------------------------------------------- drag and drop */
+.task-card[draggable='true'] {
+  cursor: grab;
+}
+.task-card.dragging {
+  opacity: 0.45;
+}
+.column.drop-target {
+  border-color: #c9bff3;
+  background: #f1eefc;
+}
+.drop-indicator {
+  list-style: none;
+  height: 4px;
+  margin: 2px 0;
+  border-radius: 2px;
+  background: var(--accent);
+}

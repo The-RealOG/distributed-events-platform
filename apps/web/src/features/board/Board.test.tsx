@@ -1,5 +1,5 @@
 import type { BoardDto } from '@dpp/contracts';
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { errorBody, makeBoard, type createFakeFetch } from '../../test/fakeBackend';
@@ -16,6 +16,20 @@ function renderBoard(board: BoardDto, extra?: (backend: FakeBackend) => void) {
       extra?.(b);
     },
   });
+}
+
+/** A DataTransfer that behaves like the browser's: what dragstart sets is what drop reads. */
+function dataTransferStore() {
+  const data = new Map<string, string>();
+  return {
+    setData: (type: string, value: string) => void data.set(type, value),
+    getData: (type: string) => data.get(type) ?? '',
+    get types() {
+      return [...data.keys()];
+    },
+    effectAllowed: '',
+    dropEffect: '',
+  };
 }
 
 function columnRegion(name: string) {
@@ -53,6 +67,50 @@ describe('board', () => {
       afterTaskId: board.columns[1]!.tasks[1]!.id,
     });
     await waitFor(() => expect(t.backend.callsTo('GET', boardPath)).toHaveLength(2));
+  });
+
+  it('drags a card to another column: shows it there at once and sends the move with its version', async () => {
+    const board = makeBoard([['A', 'B'], ['X'], []]);
+    const task = board.columns[0]!.tasks[0]!;
+    const t = renderBoard(board, (b) =>
+      b.on('POST', /\/move$/, () => ({ status: 200, body: { ...task, version: 2 } })),
+    );
+    await screen.findByRole('heading', { name: 'Launch' });
+
+    const card = within(columnRegion('To Do')).getByText('A').closest('li')!;
+    const dataTransfer = dataTransferStore();
+    fireEvent.dragStart(card, { dataTransfer });
+    fireEvent.dragOver(columnRegion('In Progress'), { dataTransfer, clientY: 10_000 });
+    fireEvent.drop(columnRegion('In Progress'), { dataTransfer, clientY: 10_000 });
+    fireEvent.dragEnd(card, { dataTransfer });
+
+    // Immediately (before the move request has even completed) in the target column, below
+    // X, and gone from To Do.
+    expect(
+      within(columnRegion('In Progress'))
+        .getAllByRole('listitem')
+        .map((li) => li.querySelector('.task-title')?.textContent),
+    ).toEqual(['X', 'A']);
+    expect(within(columnRegion('To Do')).queryByText('A')).not.toBeInTheDocument();
+
+    await waitFor(() => expect(t.backend.callsTo('POST', /\/move$/)).toHaveLength(1));
+    expect(t.backend.callsTo('POST', /\/move$/)[0]!.body).toEqual({
+      expectedVersion: 1,
+      columnId: board.columns[1]!.id,
+      afterTaskId: board.columns[1]!.tasks[0]!.id,
+    });
+  });
+
+  it('a drop that changes nothing sends nothing', async () => {
+    const board = makeBoard([['A', 'B']]);
+    const t = renderBoard(board);
+    await screen.findByRole('heading', { name: 'Launch' });
+    const card = within(columnRegion('To Do')).getByText('B').closest('li')!;
+    const dataTransfer = dataTransferStore();
+    fireEvent.dragStart(card, { dataTransfer });
+    fireEvent.drop(columnRegion('To Do'), { dataTransfer, clientY: 10_000 });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(t.backend.callsTo('POST', /\/move$/)).toHaveLength(0);
   });
 
   it('reports a conflicting move and refreshes instead of retrying', async () => {
