@@ -55,7 +55,10 @@ jobs:
         with:
           path: .turbo/cache
           key: turbo-static-${{ github.sha }}
-          restore-keys: turbo-
+          # This job's own latest cache first (it holds this job's task results), then any.
+          restore-keys: |
+            turbo-static-
+            turbo-
       - run: npm ci
       - run: npm run format:check
       - run: npx turbo run lint typecheck
@@ -71,7 +74,10 @@ jobs:
         with:
           path: .turbo/cache
           key: turbo-unit-${{ github.sha }}
-          restore-keys: turbo-
+          # This job's own latest cache first (it holds this job's task results), then any.
+          restore-keys: |
+            turbo-unit-
+            turbo-
       - run: npm ci
       # Unit and component tests plus the architecture guards (tests/architecture, never cached).
       - run: npx turbo run test build
@@ -118,6 +124,8 @@ jobs:
         with:
           path: .turbo/cache
           key: turbo-integration-${{ matrix.shard }}-${{ github.sha }}
-          restore-keys: turbo-
+          restore-keys: |
+            turbo-integration-${{ matrix.shard }}-
+            turbo-
       - run: npm ci
       - run: npx turbo run test:integration ${{ matrix.filters }} --concurrency=1
