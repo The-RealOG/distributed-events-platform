@@ -1,6 +1,7 @@
 import { boardCacheEntry, type SharedCache } from '@dpp/cache';
 import type { DomainEvent, DomainEventType } from '@dpp/contracts';
-import { DomainEventConsumer, TOPICS, type MessageMetadata } from '@dpp/kafka';
+import { consumerMetricHooks, DomainEventConsumer, TOPICS, type MessageMetadata } from '@dpp/kafka';
+import type { Metrics } from '@dpp/observability';
 import type { Kafka } from 'kafkajs';
 import type { Logger } from 'pino';
 
@@ -39,6 +40,7 @@ export function createInvalidatorWorker(options: {
   cache: SharedCache;
   logger: Logger;
   topics?: string[];
+  metrics?: Metrics;
 }) {
   const stats: InvalidatorStats = { invalidated: 0, ignored: 0, failed: 0 };
   const log = options.logger.child({ consumer: CONSUMER_NAME });
@@ -79,6 +81,11 @@ export function createInvalidatorWorker(options: {
     // be wrong: a partition with no committed offset yet (nothing consumed there before an
     // outage) would skip its whole backlog on restart, leaving stale entries until the TTL.
     fromBeginning: true,
+    // Its only side effect is Redis, so every failure is an outage, never a poison event: retry
+    // (blocking the partition) until Redis accepts it. Dead-lettering an invalidation would
+    // leave that board stale until the TTL (ADR-019).
+    classify: () => 'transient',
+    ...(options.metrics ? { hooks: consumerMetricHooks(options.metrics, CONSUMER_NAME) } : {}),
     handler,
   });
   return { consumer, stats, handler };

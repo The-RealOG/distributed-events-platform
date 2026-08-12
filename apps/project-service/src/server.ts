@@ -1,7 +1,7 @@
 import { LocalJwtAuthProvider } from '@dpp/auth';
 import { createRedisClient, SharedCache } from '@dpp/cache';
 import { createDatabase, databaseTlsCaFromEnv } from '@dpp/database';
-import { createLoggerOptions } from '@dpp/observability';
+import { createLoggerOptions, Metrics } from '@dpp/observability';
 import { installGracefulShutdown } from '@dpp/runtime';
 import { pino } from 'pino';
 import { buildApp, SERVICE_NAME, type AppState } from './app.js';
@@ -52,6 +52,7 @@ const app = buildApp(
     authProvider,
     devTokenIssuer: config.AUTH_DEV_LOGIN_ENABLED ? authProvider : undefined,
     boardCache,
+    metrics: new Metrics(SERVICE_NAME),
   },
   state,
 );

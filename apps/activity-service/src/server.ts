@@ -1,6 +1,6 @@
 import { createDatabase, databaseTlsCaFromEnv } from '@dpp/database';
 import { createKafkaClient, kafkaConnectionFromEnv } from '@dpp/kafka';
-import { createLoggerOptions } from '@dpp/observability';
+import { createLoggerOptions, Metrics } from '@dpp/observability';
 import { installGracefulShutdown } from '@dpp/runtime';
 import { pino } from 'pino';
 import { buildApp, SERVICE_NAME } from './app.js';
@@ -18,8 +18,9 @@ const database = createDatabase({
   onPoolError: (err) => logger.error({ err }, 'idle database client error'),
 });
 const kafka = createKafkaClient({ ...kafkaConnectionFromEnv(config), logger });
-const { consumer, stats } = createActivityWorker({ kafka, db: database.db, logger });
-const app = buildApp(logger, database, consumer, stats);
+const metrics = new Metrics(SERVICE_NAME);
+const { consumer, stats } = createActivityWorker({ kafka, db: database.db, logger, metrics });
+const app = buildApp(logger, database, consumer, stats, metrics);
 
 installGracefulShutdown({
   log: logger,

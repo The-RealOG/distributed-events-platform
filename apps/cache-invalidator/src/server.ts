@@ -1,6 +1,6 @@
-import { createRedisClient, SharedCache } from '@dpp/cache';
+import { createRedisClient, registerCacheMetrics, SharedCache } from '@dpp/cache';
 import { createKafkaClient, kafkaConnectionFromEnv } from '@dpp/kafka';
-import { createLoggerOptions } from '@dpp/observability';
+import { createLoggerOptions, Metrics } from '@dpp/observability';
 import { installGracefulShutdown } from '@dpp/runtime';
 import { pino } from 'pino';
 import { buildApp, SERVICE_NAME } from './app.js';
@@ -18,8 +18,10 @@ const redis = createRedisClient({
 // The TTL is the readers' concern; the invalidator only deletes.
 const cache = new SharedCache(redis, { logger, ttlSeconds: 1 });
 const kafka = createKafkaClient({ ...kafkaConnectionFromEnv(config), logger });
-const { consumer, stats } = createInvalidatorWorker({ kafka, cache, logger });
-const app = buildApp(logger, redis, consumer, stats);
+const metrics = new Metrics(SERVICE_NAME);
+registerCacheMetrics(metrics, cache.stats);
+const { consumer, stats } = createInvalidatorWorker({ kafka, cache, logger, metrics });
+const app = buildApp(logger, redis, consumer, stats, metrics);
 
 installGracefulShutdown({
   log: logger,

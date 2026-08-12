@@ -28,3 +28,17 @@ export {
   type PublishResult,
 } from './producer.js';
 export { ensureTopics, TopicMismatchError, TOPICS, type TopicSpec } from './topics.js';
+export {
+  classifyFailure,
+  DEFAULT_CONSUMER_RETRY,
+  DLQ_RECORD_VERSION,
+  PermanentEventError,
+  retryDelayMs,
+  sanitizeError,
+  type DlqCategory,
+  type DlqRecord,
+  type FailureKind,
+  type RetryPolicy,
+} from './failures.js';
+export { readDeadLetters, replayDeadLetters, type DeadLetter, type ReplayResult } from './dlq.js';
+export { consumerMetricHooks } from './metrics.js';

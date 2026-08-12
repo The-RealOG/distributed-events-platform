@@ -10,6 +10,8 @@ import {
   ensureTopics,
   kafkaConnectionFromEnv,
   kafkaEnvSchema,
+  readDeadLetters,
+  replayDeadLetters,
   TOPICS,
 } from '@dpp/kafka';
 import { createLoggerOptions } from '@dpp/observability';
@@ -27,6 +29,8 @@ import { z } from 'zod';
  *   produce-sample [--type T] [--project ID] [--correlation-id C]
  *   produce-malformed --kind invalid-json|unknown-type|bad-schema-version|bad-payload
  *   consume [--group G] [--from-beginning]    probe consumer; prints each event (Ctrl-C to stop)
+ *   dlq-list                        dead-lettered records (category, consumer, error, event identity)
+ *   dlq-replay --event-id ID [--operator NAME]   republish one dead-lettered event (same eventId)
  */
 
 const config = loadConfig(
@@ -282,6 +286,47 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
     }
   },
 
+  'dlq-list': async () => {
+    for (const { partition, offset, record } of await readDeadLetters(kafka)) {
+      out({
+        dlqPartition: partition,
+        dlqOffset: offset,
+        category: record.category,
+        consumer: record.consumer,
+        attempts: record.attempts,
+        failedAt: record.failedAt,
+        error: record.error,
+        eventId: record.event?.eventId,
+        eventType: record.event?.eventType,
+        correlationId: record.event?.correlationId,
+        source: record.source,
+      });
+    }
+  },
+  'dlq-replay': async (args) => {
+    const { values } = parseArgs({
+      args,
+      options: { 'event-id': { type: 'string' }, operator: { type: 'string' } },
+    });
+    const eventId = values['event-id'];
+    if (!eventId) throw new Error('--event-id is required (replay is always explicit)');
+    const letters = (await readDeadLetters(kafka)).filter(
+      (l) => l.record.event?.eventId === eventId,
+    );
+    if (letters.length === 0) throw new Error(`no dead-lettered event ${eventId}`);
+    // One replay per call even if several consumers dead-lettered the same event.
+    const result = await replayDeadLetters(kafka, letters.slice(0, 1), {
+      logger,
+      operator: values.operator ?? process.env['USER'] ?? 'unknown',
+    });
+    out({
+      replayed: result.replayed.map((l) => ({
+        eventId: l.record.event?.eventId,
+        dlqOffset: l.offset,
+      })),
+      skipped: result.skipped.map((s) => s.reason),
+    });
+  },
   consume: async (args) => {
     const { values } = parseArgs({
       args,

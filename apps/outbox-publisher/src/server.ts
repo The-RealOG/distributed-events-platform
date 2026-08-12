@@ -1,10 +1,11 @@
 import { createDatabase, databaseTlsCaFromEnv } from '@dpp/database';
 import { createKafkaClient, DomainEventProducer, kafkaConnectionFromEnv } from '@dpp/kafka';
-import { createLoggerOptions } from '@dpp/observability';
+import { createLoggerOptions, Metrics } from '@dpp/observability';
 import { installGracefulShutdown } from '@dpp/runtime';
 import { pino } from 'pino';
 import { buildApp, SERVICE_NAME } from './app.js';
 import { loadPublisherConfig } from './config.js';
+import { registerOutboxMetrics } from './metrics.js';
 import { OutboxPublisher } from './publisher.js';
 
 const config = loadPublisherConfig();
@@ -20,6 +21,7 @@ const database = createDatabase({
 });
 // Local plaintext broker or MSK with IAM auth, decided entirely by configuration.
 const kafka = createKafkaClient({ ...kafkaConnectionFromEnv(config), logger });
+const metrics = new Metrics(SERVICE_NAME);
 
 const publisher = new OutboxPublisher({
   db: database.db,
@@ -31,8 +33,9 @@ const publisher = new OutboxPublisher({
   leaseMs: config.OUTBOX_LEASE_MS,
   backoff: { baseMs: config.OUTBOX_BACKOFF_BASE_MS, maxMs: config.OUTBOX_BACKOFF_MAX_MS },
   // No `faults`: fault injection exists only for tests that construct the publisher themselves.
+  observer: registerOutboxMetrics(metrics, database.db),
 });
-const app = buildApp(logger, database, publisher);
+const app = buildApp(logger, database, publisher, metrics);
 
 installGracefulShutdown({
   log: logger,

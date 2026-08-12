@@ -6,3 +6,10 @@ export {
   registerRequestContext,
   requestIdOptions,
 } from './request-context.js';
+export {
+  assertLowCardinality,
+  LATENCY_BUCKETS,
+  Metrics,
+  registerHttpMetrics,
+  registerPoolMetrics,
+} from './metrics.js';

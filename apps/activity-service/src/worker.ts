@@ -1,5 +1,6 @@
 import { createIdempotentHandler, type ConsumerOutcome, type Database } from '@dpp/database';
-import { DomainEventConsumer, TOPICS } from '@dpp/kafka';
+import { consumerMetricHooks, DomainEventConsumer, TOPICS } from '@dpp/kafka';
+import type { Metrics } from '@dpp/observability';
 import type { Kafka } from 'kafkajs';
 import type { Logger } from 'pino';
 import { recordActivity } from './projection.js';
@@ -27,10 +28,19 @@ export function createActivityWorker(options: {
   db: Database;
   logger: Logger;
   topics?: string[];
+  metrics?: Metrics;
+  /** Dead-letter topic override (tests); poison events go to domain.events.dlq by default. */
+  deadLetterTopic?: string;
 }) {
   const stats: ActivityStats = { processed: 0, duplicate: 0, failed: 0, lastEventAt: null };
+  const outcomes = options.metrics?.counter({
+    name: 'activity_events_total',
+    help: 'Activity projection outcomes (processed = row written, duplicate = skipped)',
+    labelNames: ['outcome'],
+  });
   const count = (outcome: ConsumerOutcome) => {
     stats[outcome]++;
+    outcomes?.inc({ outcome });
     if (outcome !== 'failed') stats.lastEventAt = new Date().toISOString();
   };
   const consumer = new DomainEventConsumer({
@@ -41,6 +51,10 @@ export function createActivityWorker(options: {
     // A new group starts at the beginning of the topic, so history published before the first
     // deployment (within Kafka retention) is projected too.
     fromBeginning: true,
+    // Poison events (e.g. a row the projection can never insert) are retried a few times, then
+    // dead-lettered; a database outage blocks the partition instead (ADR-019).
+    deadLetter: options.deadLetterTopic ? { topic: options.deadLetterTopic } : {},
+    ...(options.metrics ? { hooks: consumerMetricHooks(options.metrics, CONSUMER_NAME) } : {}),
     handler: createIdempotentHandler({
       db: options.db,
       consumerName: CONSUMER_NAME,

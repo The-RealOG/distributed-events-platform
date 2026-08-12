@@ -1,5 +1,18 @@
 import { decodeDomainEvent, type DomainEvent, type EventParseFailure } from '@dpp/contracts';
-import type { Consumer, EachMessagePayload, Kafka } from 'kafkajs';
+import { setTimeout as sleep } from 'node:timers/promises';
+import type { Consumer, EachMessagePayload, Kafka, Producer } from 'kafkajs';
+import {
+  classifyFailure,
+  DEFAULT_CONSUMER_RETRY,
+  DLQ_RECORD_VERSION,
+  rawForDlq,
+  retryDelayMs,
+  sanitizeError,
+  type DlqRecord,
+  type FailureKind,
+  type RetryPolicy,
+} from './failures.js';
+import { TOPICS } from './topics.js';
 import type { Logger } from 'pino';
 import { headersToStrings } from './encoding.js';
 import { withTimeout } from './producer.js';
@@ -20,6 +33,12 @@ export interface ConsumerHooks {
   /** A message that failed decoding/validation and was skipped (see malformed-message policy). */
   onInvalidMessage?: (failure: EventParseFailure, metadata: MessageMetadata) => void;
   onProcessed?: (event: DomainEvent, metadata: MessageMetadata, durationMs: number) => void;
+  /** A failed attempt that will be retried in-process. */
+  onRetry?: (kind: FailureKind, attempt: number, delayMs: number) => void;
+  /** A message written to the DLQ (and then acknowledged). */
+  onDeadLetter?: (category: DlqRecord['category']) => void;
+  /** Writing to the DLQ failed; the message stays unacknowledged. */
+  onDeadLetterFailure?: () => void;
 }
 
 export interface DomainEventConsumerOptions {
@@ -47,6 +66,15 @@ export interface DomainEventConsumerOptions {
    * costs one idle fetch per second and makes stop() about 1 s instead of 5 s.
    */
   maxWaitTimeMs?: number;
+  /**
+   * Dead-letter poison and malformed messages to this topic (ADR-019). Without it, handler
+   * failures are retried by KafkaJS indefinitely and malformed messages are skipped with a log
+   * line (the Phase-3 behaviour).
+   */
+  deadLetter?: { topic?: string };
+  retry?: Partial<RetryPolicy>;
+  /** Transient vs permanent; defaults to classifyFailure. */
+  classify?: (err: unknown) => FailureKind;
 }
 
 /**
@@ -75,9 +103,16 @@ export class DomainEventConsumer {
   readonly #joinWaiters: (() => void)[] = [];
   #joined = false;
   #crashed = false;
+  #stopping = false;
+  readonly #retry: RetryPolicy;
+  readonly #dlqProducer: Producer | undefined;
 
   constructor(options: DomainEventConsumerOptions) {
     this.#options = options;
+    this.#retry = { ...DEFAULT_CONSUMER_RETRY, ...options.retry };
+    this.#dlqProducer = options.deadLetter
+      ? options.kafka.producer({ allowAutoTopicCreation: false, maxInFlightRequests: 1 })
+      : undefined;
     this.#logger = options.logger.child({
       component: 'event-consumer',
       consumerGroup: options.groupId,
@@ -130,6 +165,8 @@ export class DomainEventConsumer {
   }
 
   async start(): Promise<void> {
+    this.#stopping = false;
+    await this.#dlqProducer?.connect();
     await this.#consumer.connect();
     for (const topic of this.#options.topics) {
       await this.#consumer.subscribe({ topic, fromBeginning: this.#options.fromBeginning ?? true });
@@ -143,12 +180,20 @@ export class DomainEventConsumer {
    * hang shutdown.
    */
   async stop({ timeoutMs = 10_000 } = {}): Promise<void> {
+    // In-process retry loops check this and hand the message back unacknowledged.
+    this.#stopping = true;
     await withTimeout(this.#consumer.disconnect(), timeoutMs, () =>
       this.#logger.warn({ timeoutMs }, 'consumer disconnect timed out'),
     );
+    if (this.#dlqProducer) {
+      await withTimeout(this.#dlqProducer.disconnect(), timeoutMs, () =>
+        this.#logger.warn({ timeoutMs }, 'dead-letter producer disconnect timed out'),
+      );
+    }
   }
 
-  async #handle({ topic, partition, message }: EachMessagePayload): Promise<void> {
+  async #handle(payload: EachMessagePayload): Promise<void> {
+    const { topic, partition, message } = payload;
     const metadata: MessageMetadata = {
       topic,
       partition,
@@ -158,6 +203,7 @@ export class DomainEventConsumer {
       consumerGroup: this.#options.groupId,
     };
     const where = { topic, partition, offset: message.offset, key: metadata.key };
+    const source = { topic, partition, offset: message.offset, key: metadata.key };
 
     const decoded = decodeDomainEvent(message.value);
     if (!decoded.ok) {
@@ -166,9 +212,27 @@ export class DomainEventConsumer {
       const issues = 'issues' in failure ? failure.issues.slice(0, 5) : undefined;
       this.#logger.warn(
         { ...where, ...failure, ...(issues ? { issues } : {}) },
-        'skipping malformed event',
+        this.#dlqProducer ? 'malformed event; dead-lettering' : 'skipping malformed event',
       );
       this.#options.hooks?.onInvalidMessage?.(decoded, metadata);
+      if (this.#dlqProducer) {
+        await this.#deadLetter(
+          {
+            dlqVersion: DLQ_RECORD_VERSION,
+            category: 'malformed',
+            consumer: this.#options.groupId,
+            error: `${failure.reason}${issues ? `: ${issues.slice(0, 3).join('; ')}` : ''}`.slice(
+              0,
+              500,
+            ),
+            attempts: 1,
+            failedAt: new Date().toISOString(),
+            source,
+            ...rawForDlq(message.value),
+          },
+          where,
+        );
+      }
       return;
     }
 
@@ -179,15 +243,87 @@ export class DomainEventConsumer {
       eventType: event.eventType,
       correlationId: event.correlationId,
     });
-    const started = performance.now();
+    const classify = this.#options.classify ?? classifyFailure;
+    for (let attempt = 1; ; attempt++) {
+      const started = performance.now();
+      try {
+        await this.#options.handler(event, metadata);
+        const durationMs = Math.round(performance.now() - started);
+        log.debug({ durationMs, attempt }, 'event processed');
+        this.#options.hooks?.onProcessed?.(event, metadata, durationMs);
+        return;
+      } catch (err) {
+        const kind = classify(err);
+        const error = sanitizeError(err);
+        const limit =
+          kind === 'permanent' ? this.#retry.permanentAttempts : this.#retry.transientAttempts;
+        if (attempt >= limit || this.#stopping) {
+          if (kind === 'permanent' && this.#dlqProducer && !this.#stopping) {
+            log.error(
+              { error, attempts: attempt },
+              'poison event: retries exhausted; dead-lettering',
+            );
+            await this.#deadLetter(
+              {
+                dlqVersion: DLQ_RECORD_VERSION,
+                category: 'poison',
+                consumer: this.#options.groupId,
+                error,
+                attempts: attempt,
+                failedAt: new Date().toISOString(),
+                source,
+                event,
+              },
+              where,
+            );
+            return; // acknowledged only now that the DLQ has it
+          }
+          // Transient (or no DLQ, or stopping): not acknowledged. KafkaJS redelivers from the
+          // last committed offset, so the event is retried later, in order.
+          log.error(
+            { error, kind, attempts: attempt },
+            'event handler failed; message will be redelivered',
+          );
+          throw err;
+        }
+        const delayMs = retryDelayMs(attempt, this.#retry);
+        log.warn({ error, kind, attempt, delayMs }, 'event handler failed; retrying');
+        this.#options.hooks?.onRetry?.(kind, attempt, delayMs);
+        // No transaction is open here: each attempt is a fresh handler call. Keep the group
+        // session alive while waiting.
+        await sleep(delayMs);
+        await payload.heartbeat().catch(() => undefined);
+      }
+    }
+  }
+
+  /** Writes to the DLQ and waits for the acknowledgement; throws (no offset commit) if it fails. */
+  async #deadLetter(record: DlqRecord, where: Record<string, unknown>): Promise<void> {
+    const topic = this.#options.deadLetter?.topic ?? TOPICS.domainEventsDlq.name;
     try {
-      await this.#options.handler(event, metadata);
+      await this.#dlqProducer!.send({
+        topic,
+        acks: -1,
+        messages: [
+          {
+            key: record.source.key,
+            value: JSON.stringify(record),
+            headers: { 'dlq-category': record.category, 'dlq-consumer': record.consumer },
+          },
+        ],
+      });
     } catch (err) {
-      log.error({ err }, 'event handler failed; message will be redelivered');
+      this.#options.hooks?.onDeadLetterFailure?.();
+      this.#logger.error(
+        { ...where, error: sanitizeError(err) },
+        'dead-letter write failed; message left unacknowledged for redelivery',
+      );
       throw err;
     }
-    const durationMs = Math.round(performance.now() - started);
-    log.debug({ durationMs }, 'event processed');
-    this.#options.hooks?.onProcessed?.(event, metadata, durationMs);
+    this.#options.hooks?.onDeadLetter?.(record.category);
+    this.#logger.warn(
+      { ...where, category: record.category, dlqTopic: topic },
+      'message dead-lettered',
+    );
   }
 }

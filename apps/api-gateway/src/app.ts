@@ -1,4 +1,10 @@
-import { createLoggerOptions, registerRequestContext, requestIdOptions } from '@dpp/observability';
+import {
+  createLoggerOptions,
+  registerHttpMetrics,
+  registerRequestContext,
+  requestIdOptions,
+  type Metrics,
+} from '@dpp/observability';
 import { closeConnectionsWhenDraining } from '@dpp/runtime';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -13,7 +19,11 @@ export interface AppState {
   ready: boolean;
 }
 
-export async function buildApp(config: GatewayConfig, state: AppState): Promise<FastifyInstance> {
+export async function buildApp(
+  config: GatewayConfig,
+  state: AppState,
+  metrics?: Metrics,
+): Promise<FastifyInstance> {
   const app = Fastify({
     logger: createLoggerOptions(SERVICE_NAME, config.LOG_LEVEL),
     ...requestIdOptions(),
@@ -25,6 +35,8 @@ export async function buildApp(config: GatewayConfig, state: AppState): Promise<
   registerRequestContext(app);
   registerErrorHandling(app);
   closeConnectionsWhenDraining(app);
+  // /metrics lives outside /api, so CloudFront (which only forwards /api/*) never reaches it.
+  if (metrics) registerHttpMetrics(app, metrics);
 
   // The browser boundary: only configured origins may call the API from a page.
   await app.register(cors, {

@@ -1,5 +1,11 @@
 import { outboxStatus, type DatabaseHandle } from '@dpp/database';
-import { registerRequestContext, requestIdOptions } from '@dpp/observability';
+import {
+  registerHttpMetrics,
+  registerPoolMetrics,
+  registerRequestContext,
+  requestIdOptions,
+  type Metrics,
+} from '@dpp/observability';
 import { closeConnectionsWhenDraining } from '@dpp/runtime';
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import type { OutboxPublisher } from './publisher.js';
@@ -15,6 +21,7 @@ export function buildApp(
   logger: FastifyBaseLogger,
   database: DatabaseHandle,
   publisher: OutboxPublisher,
+  metrics?: Metrics,
 ): FastifyInstance {
   const app = Fastify({
     loggerInstance: logger,
@@ -22,6 +29,10 @@ export function buildApp(
   }) as unknown as FastifyInstance;
   registerRequestContext(app);
   closeConnectionsWhenDraining(app);
+  if (metrics) {
+    registerHttpMetrics(app, metrics);
+    registerPoolMetrics(metrics, database.pool);
+  }
 
   app.get('/health', () => ({ status: 'ok' }));
   app.get('/ready', async (_request, reply) =>

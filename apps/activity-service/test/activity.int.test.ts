@@ -6,7 +6,13 @@ import {
   runMigrations,
   type DatabaseHandle,
 } from '@dpp/database';
-import { createKafkaClient, DomainEventProducer, ensureTopics } from '@dpp/kafka';
+import {
+  createKafkaClient,
+  DomainEventProducer,
+  ensureTopics,
+  readDeadLetters,
+  replayDeadLetters,
+} from '@dpp/kafka';
 import { createIsolatedDatabase, waitFor } from '@dpp/test-utils';
 import type { Kafka } from 'kafkajs';
 import { pino } from 'pino';
@@ -38,14 +44,15 @@ beforeAll(async () => {
     maxConnections: 10,
   });
   kafka = createKafkaClient({ clientId: 'activity-test', brokers: inject('kafkaBrokers'), logger });
+  dlqTopic = await createTopic(1);
 });
 afterAll(() => database?.close());
 
-async function createTopic(): Promise<string> {
+async function createTopic(numPartitions = 3): Promise<string> {
   const name = `test.activity.${randomUUID()}`;
   const admin = kafka.admin();
   await admin.connect();
-  await ensureTopics(admin, [{ name, numPartitions: 3, replicationFactor: 1, config: {} }]);
+  await ensureTopics(admin, [{ name, numPartitions, replicationFactor: 1, config: {} }]);
   await admin.disconnect();
   return name;
 }
@@ -57,8 +64,15 @@ async function publish(topic: string, events: DomainEvent[]) {
   await producer.close();
 }
 
+let dlqTopic: string;
 async function startWorker(topic: string) {
-  const worker = createActivityWorker({ kafka, db: database.db, logger, topics: [topic] });
+  const worker = createActivityWorker({
+    kafka,
+    db: database.db,
+    logger,
+    topics: [topic],
+    deadLetterTopic: dlqTopic,
+  });
   const joined = worker.consumer.nextGroupJoin();
   await worker.consumer.start();
   await joined;
@@ -224,7 +238,7 @@ describe('failures', () => {
     await database.pool.query(`
       CREATE OR REPLACE FUNCTION fail_activity() RETURNS trigger AS $$
       BEGIN
-        IF NEW.project_id = '${projectId}' THEN RAISE EXCEPTION 'injected activity failure'; END IF;
+        IF NEW.project_id = '${projectId}' THEN RAISE EXCEPTION 'injected activity failure' USING ERRCODE = '08006'; END IF;
         RETURN NEW;
       END $$ LANGUAGE plpgsql;
       CREATE TRIGGER fail_activity BEFORE INSERT ON activity_events
@@ -259,7 +273,7 @@ describe('commit atomicity', () => {
     await database.pool.query(`
       CREATE OR REPLACE FUNCTION fail_marker_commit() RETURNS trigger AS $$
       BEGIN
-        IF NEW.event_id = '${event!.eventId}' THEN RAISE EXCEPTION 'injected commit failure'; END IF;
+        IF NEW.event_id = '${event!.eventId}' THEN RAISE EXCEPTION 'injected commit failure' USING ERRCODE = '08006'; END IF;
         RETURN NEW;
       END $$ LANGUAGE plpgsql;
       CREATE CONSTRAINT TRIGGER fail_marker_commit AFTER INSERT ON processed_events
@@ -282,6 +296,82 @@ describe('commit atomicity', () => {
     await waitFor(() => worker.stats.processed >= 1, {
       timeoutMs: 30_000,
       description: 'processed once',
+    });
+    await worker.consumer.stop();
+    expect(await activity(projectId)).toHaveLength(1);
+    expect(await markers([event!.eventId])).toBe(1);
+  });
+});
+
+describe('poison events', () => {
+  it('an event the projection can never store is retried, dead-lettered (no row, no marker), and the stream continues', async () => {
+    const topic = await createTopic();
+    const projectId = randomUUID();
+    const [poison, next] = eventsForTask(projectId);
+    // A permanent failure for this event only (constraint-style error, not an outage).
+    await database.pool.query(`
+      CREATE OR REPLACE FUNCTION poison_activity() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.event_id = '${poison!.eventId}' THEN
+          RAISE EXCEPTION 'impossible row' USING ERRCODE = '23514';
+        END IF;
+        RETURN NEW;
+      END $$ LANGUAGE plpgsql;
+      CREATE TRIGGER poison_activity BEFORE INSERT ON activity_events
+        FOR EACH ROW EXECUTE FUNCTION poison_activity();`);
+    try {
+      await publish(topic, [poison!, next!]);
+      const worker = await startWorker(topic);
+      await waitForRows(projectId, 1);
+      await worker.consumer.stop();
+      expect((await activity(projectId)).map((r) => r.event_id)).toEqual([next!.eventId]);
+      expect(await markers([poison!.eventId])).toBe(0);
+      expect(worker.stats.failed).toBe(3);
+      const letters = await readDeadLetters(kafka, { topic: dlqTopic });
+      const mine = letters.filter((l) => l.record.event?.eventId === poison!.eventId);
+      expect(mine).toHaveLength(1);
+      expect(mine[0]!.record).toMatchObject({
+        category: 'poison',
+        consumer: CONSUMER_NAME,
+        attempts: 3,
+      });
+      expect(mine[0]!.record.error).toContain('23514');
+    } finally {
+      await database.pool.query('DROP TRIGGER IF EXISTS poison_activity ON activity_events');
+    }
+  });
+
+  it('replaying the fixed poison event applies it once; replaying it again is a harmless duplicate', async () => {
+    const topic = await createTopic();
+    const projectId = randomUUID();
+    const [event] = eventsForTask(projectId);
+    await database.pool.query(`
+      CREATE OR REPLACE FUNCTION poison_once() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.event_id = '${event!.eventId}' THEN RAISE EXCEPTION 'bug' USING ERRCODE = '23514'; END IF;
+        RETURN NEW;
+      END $$ LANGUAGE plpgsql;
+      CREATE TRIGGER poison_once BEFORE INSERT ON activity_events
+        FOR EACH ROW EXECUTE FUNCTION poison_once();`);
+    await publish(topic, [event!]);
+    const worker = await startWorker(topic);
+    const letters = await waitFor(
+      async () => {
+        const l = (await readDeadLetters(kafka, { topic: dlqTopic })).filter(
+          (x) => x.record.event?.eventId === event!.eventId,
+        );
+        return l.length > 0 ? l : undefined;
+      },
+      { timeoutMs: 30_000, description: 'dead-lettered' },
+    );
+    await database.pool.query('DROP TRIGGER IF EXISTS poison_once ON activity_events'); // "fixed"
+    for (let i = 0; i < 2; i++) {
+      await replayDeadLetters(kafka, letters, { logger, operator: 'test', targetTopic: topic });
+    }
+    await waitForRows(projectId, 1);
+    await waitFor(() => worker.stats.duplicate >= 1, {
+      timeoutMs: 30_000,
+      description: 'second replay skipped',
     });
     await worker.consumer.stop();
     expect(await activity(projectId)).toHaveLength(1);

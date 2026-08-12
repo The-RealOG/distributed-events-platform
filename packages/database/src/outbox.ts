@@ -48,6 +48,8 @@ export interface ClaimedOutboxEvent {
   attemptCount: number;
   createdAt: Date;
   event: DomainEvent;
+  /** The row's lease had expired (its previous owner crashed or stalled): a stale-claim recovery. */
+  recoveredFromStaleClaim: boolean;
 }
 
 interface ClaimedRow extends Record<string, unknown> {
@@ -59,6 +61,7 @@ interface ClaimedRow extends Record<string, unknown> {
   attempt_count: number;
   created_at: Date | string;
   event: DomainEvent;
+  previous_owner: string | null;
 }
 
 /**
@@ -77,12 +80,11 @@ export async function claimOutboxBatch(
   db: DbExecutor,
   options: { workerId: string; limit: number; leaseMs: number },
 ): Promise<ClaimedOutboxEvent[]> {
+  // A locking CTE rather than UPDATE … WHERE IN (…) so the previous owner can be returned:
+  // RETURNING only sees new values, and a non-null previous owner means a stale lease.
   const result = await db.execute<ClaimedRow>(sql`
-    UPDATE outbox_events AS o
-    SET claimed_by = ${options.workerId},
-        claimed_until = now() + make_interval(secs => ${options.leaseMs / 1000})
-    WHERE o.sequence_id IN (
-      SELECT c.sequence_id
+    WITH picked AS (
+      SELECT c.sequence_id, c.claimed_by AS previous_owner
       FROM outbox_events AS c
       WHERE c.published_at IS NULL
         AND c.next_attempt_at <= now()
@@ -97,8 +99,13 @@ export async function claimOutboxBatch(
       LIMIT ${options.limit}
       FOR UPDATE SKIP LOCKED
     )
+    UPDATE outbox_events AS o
+    SET claimed_by = ${options.workerId},
+        claimed_until = now() + make_interval(secs => ${options.leaseMs / 1000})
+    FROM picked
+    WHERE o.sequence_id = picked.sequence_id
     RETURNING o.sequence_id, o.event_id, o.event_type, o.partition_key, o.correlation_id,
-              o.attempt_count, o.created_at, o.event
+              o.attempt_count, o.created_at, o.event, picked.previous_owner
   `);
   return result.rows
     .map((row) => ({
@@ -110,6 +117,7 @@ export async function claimOutboxBatch(
       attemptCount: row.attempt_count,
       createdAt: new Date(row.created_at),
       event: row.event,
+      recoveredFromStaleClaim: row.previous_owner !== null,
     }))
     .sort((a, b) => (a.sequenceId < b.sequenceId ? -1 : 1));
 }

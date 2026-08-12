@@ -1,5 +1,10 @@
 import type { DomainEventConsumer } from '@dpp/kafka';
-import { registerRequestContext, requestIdOptions } from '@dpp/observability';
+import {
+  registerHttpMetrics,
+  registerRequestContext,
+  requestIdOptions,
+  type Metrics,
+} from '@dpp/observability';
 import { closeConnectionsWhenDraining } from '@dpp/runtime';
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import type { Redis } from 'ioredis';
@@ -13,6 +18,7 @@ export function buildApp(
   redis: Redis,
   consumer: DomainEventConsumer,
   stats: InvalidatorStats,
+  metrics?: Metrics,
 ): FastifyInstance {
   const app = Fastify({
     loggerInstance: logger,
@@ -20,6 +26,7 @@ export function buildApp(
   }) as unknown as FastifyInstance;
   registerRequestContext(app);
   closeConnectionsWhenDraining(app);
+  if (metrics) registerHttpMetrics(app, metrics);
 
   app.get('/health', () => ({ status: 'ok' }));
   app.get('/ready', async (_request, reply) => {

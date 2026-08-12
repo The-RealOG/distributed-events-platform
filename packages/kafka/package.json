@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@dpp/contracts": "*",
+    "@dpp/observability": "*",
     "aws-msk-iam-sasl-signer-js": "^1.0.3",
     "kafkajs": "^2.2.4",
     "pino": "^10.3.1",

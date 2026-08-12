@@ -1,10 +1,11 @@
+import { Metrics } from '@dpp/observability';
 import { installGracefulShutdown } from '@dpp/runtime';
-import { buildApp, type AppState } from './app.js';
+import { buildApp, SERVICE_NAME, type AppState } from './app.js';
 import { loadGatewayConfig } from './config.js';
 
 const config = loadGatewayConfig();
 const state: AppState = { ready: false };
-const app = await buildApp(config, state);
+const app = await buildApp(config, state, new Metrics(SERVICE_NAME));
 
 installGracefulShutdown({
   log: app.log,

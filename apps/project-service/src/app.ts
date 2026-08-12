@@ -1,6 +1,14 @@
 import type { AuthProvider } from '@dpp/auth';
 import type { DatabaseHandle } from '@dpp/database';
-import { createLoggerOptions, registerRequestContext, requestIdOptions } from '@dpp/observability';
+import { registerCacheMetrics } from '@dpp/cache';
+import {
+  createLoggerOptions,
+  registerHttpMetrics,
+  registerPoolMetrics,
+  registerRequestContext,
+  requestIdOptions,
+  type Metrics,
+} from '@dpp/observability';
 import { closeConnectionsWhenDraining } from '@dpp/runtime';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
@@ -36,6 +44,7 @@ export interface AppDependencies {
   devTokenIssuer?: TokenIssuer | undefined;
   /** Present only when the shared cache is enabled (ADR-015). */
   boardCache?: BoardCache | undefined;
+  metrics?: Metrics | undefined;
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -64,6 +73,11 @@ export function buildApp(deps: AppDependencies, state: AppState): FastifyInstanc
   registerPrincipal(app);
   registerErrorHandling(app);
   closeConnectionsWhenDraining(app);
+  if (deps.metrics) {
+    registerHttpMetrics(app, deps.metrics);
+    registerPoolMetrics(deps.metrics, database.pool);
+    if (deps.boardCache) registerCacheMetrics(deps.metrics, deps.boardCache.shared.stats);
+  }
 
   app.get('/health', () => ({ status: 'ok' }));
 

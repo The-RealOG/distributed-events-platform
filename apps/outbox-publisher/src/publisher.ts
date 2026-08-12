@@ -52,6 +52,15 @@ export interface OutboxPublisherOptions {
   backoff: BackoffPolicy;
   faults?: PublisherFaults;
   random?: () => number;
+  observer?: PublisherObserver;
+}
+
+/** Counting hooks for metrics (server.ts wires them to Prometheus). */
+export interface PublisherObserver {
+  /** Kafka acknowledged the event; latency = commit (created_at) → acknowledgement. */
+  published(latencyMs: number, attempts: number): void;
+  failed(kind: string): void;
+  staleClaimRecovered(): void;
 }
 
 export interface CycleResult {
@@ -161,6 +170,8 @@ export class OutboxPublisher {
       leaseMs: this.#o.leaseMs,
     });
     result.claimed = batch.length;
+    for (const row of batch)
+      if (row.recoveredFromStaleClaim) this.#o.observer?.staleClaimRecovered();
 
     for (let i = 0; i < batch.length; i++) {
       const row = batch[i]!;
@@ -193,6 +204,7 @@ export class OutboxPublisher {
           retryAfterMs,
         });
         result.failed++;
+        this.#o.observer?.failed(kind);
         log.warn(
           { attempt, retryAfterMs, kind, error: sanitizeOutboxError(err) },
           'outbox publish failed',
@@ -210,6 +222,7 @@ export class OutboxPublisher {
       await markOutboxPublished(this.#o.db, row.sequenceId);
       this.#kafkaReachable = true;
       result.published++;
+      this.#o.observer?.published(Date.now() - row.createdAt.getTime(), row.attemptCount + 1);
       log.info(
         {
           partition: published.partition,
