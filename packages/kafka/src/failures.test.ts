@@ -64,16 +64,45 @@ describe('retry delay', () => {
 
 describe('DLQ error sanitising', () => {
   it('keeps one bounded line without stack traces or credentials', () => {
+    // Fake credentials assembled at runtime so secret scanners do not flag this fixture.
+    const awsKey = ['AK', 'IA', 'ABCDEFGHIJKLMNOP'].join('');
+    const jwt = [
+      'ey',
+      'JhbGciOiJIUzI1NiJ9.',
+      'ey',
+      'JzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N',
+    ].join('');
+    const url = ['postgres://app', ':s3cret@db.internal:5432/dpp'].join('');
     const err = withCode(
-      'connect to postgres://app:s3cret@db.internal:5432/dpp failed; Authorization: Bearer abc.def.ghi; ' +
-        'token=xyz AKIAABCDEFGHIJKLMNOP eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N' +
+      `connect to ${url} failed; Authorization: Bearer abc.def.ghi; token=xyz ${awsKey} ${jwt}` +
         `\n${'x'.repeat(2000)}`,
       '08006',
     );
     const text = sanitizeError(err);
     expect(text.length).toBeLessThanOrEqual(500);
-    expect(text).not.toMatch(/s3cret|abc\.def|xyz|AKIAABCDEFGHIJKLMNOP|eyJzdWIi|\n|at /);
+    for (const secret of ['s3cret', 'abc.def', 'xyz', awsKey, jwt.split('.')[1]!]) {
+      expect(text).not.toContain(secret);
+    }
+    expect(text).not.toMatch(/\n|at /);
     expect(text).toContain('[08006]');
+  });
+
+  it('uses the driver error inside a query wrapper: its SQLSTATE, and none of the query parameters', () => {
+    const pg = withCode('terminating connection due to administrator command', '57P01');
+    const wrapped = new Error(
+      'Failed query: insert into "activity_events" values ($1) params: private title',
+      {
+        cause: pg,
+      },
+    );
+    expect(classifyFailure(wrapped)).toBe('transient');
+    const poison = new Error('Failed query: … params: secret text', {
+      cause: withCode('new row violates check constraint', '23514'),
+    });
+    expect(classifyFailure(poison)).toBe('permanent');
+    const text = sanitizeError(poison);
+    expect(text).toContain('[23514]');
+    expect(text).not.toContain('secret text');
   });
 
   it('keeps malformed input as bounded base64', () => {

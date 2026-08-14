@@ -33,9 +33,24 @@ const TRANSIENT_CODES = new Set([
 const TRANSIENT_MESSAGE =
   /timeout|timed out|connection (is )?(closed|terminated|refused|reset)|stream isn't writeable|getaddrinfo|socket hang up|too many clients|the database system is (starting|shutting) down|terminating connection/i;
 
+/**
+ * The innermost cause. Libraries wrap driver errors (Drizzle: `Failed query: … params: …`, with
+ * the PostgreSQL error, its SQLSTATE and message, as `cause`); classification and the DLQ text
+ * must use the real error, and must not carry the wrapper's query parameters (user data).
+ */
+export function rootCause(err: unknown): unknown {
+  let current = err;
+  for (let depth = 0; depth < 5; depth++) {
+    const cause = (current as { cause?: unknown } | null)?.cause;
+    if (cause === undefined || cause === null || cause === current) break;
+    current = cause;
+  }
+  return current;
+}
+
 export function classifyFailure(err: unknown): FailureKind {
   if (err instanceof PermanentEventError) return 'permanent';
-  const e = err as { code?: unknown; message?: unknown; name?: unknown } | null;
+  const e = rootCause(err) as { code?: unknown; message?: unknown; name?: unknown } | null;
   const code = typeof e?.code === 'string' ? e.code : '';
   // PostgreSQL SQLSTATE classes: 08 connection, 53 resources, 57 operator intervention (shutdown).
   if (/^(08|53|57)/.test(code) && code.length === 5) return 'transient';
@@ -85,7 +100,7 @@ const REDACTIONS: [RegExp, string][] = [
 
 /** One bounded line (name, code, message), no stack, credentials and tokens redacted. */
 export function sanitizeError(err: unknown): string {
-  const e = err as { name?: unknown; message?: unknown; code?: unknown } | null;
+  const e = rootCause(err) as { name?: unknown; message?: unknown; code?: unknown } | null;
   const name = typeof e?.name === 'string' ? e.name : 'Error';
   const code = typeof e?.code === 'string' ? ` [${e.code}]` : '';
   const message = typeof e?.message === 'string' ? e.message : String(err);

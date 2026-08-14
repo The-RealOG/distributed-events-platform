@@ -1,0 +1,5 @@
+# Fake credentials in a redaction-test fixture (commit 87f9203); since replaced by values
+# assembled at runtime. Exact fingerprints only: any real secret elsewhere is still reported.
+87f92035f65d5d2c794b1b5fca9d01fd86648298:packages/kafka/src/failures.test.ts:jwt:69
+87f92035f65d5d2c794b1b5fca9d01fd86648298:packages/kafka/src/failures.test.ts:aws-access-token:69
+87f92035f65d5d2c794b1b5fca9d01fd86648298:packages/kafka/src/failures.test.ts:aws-access-token:75

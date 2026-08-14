@@ -41,3 +41,4 @@ export {
 } from './idempotency.js';
 // Consumers write their side effects with the transaction handle and this tag.
 export { sql } from 'drizzle-orm';
+export { projectReadAccess } from './access.js';

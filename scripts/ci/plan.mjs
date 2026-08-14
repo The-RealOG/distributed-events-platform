@@ -17,7 +17,7 @@ export const SHARDS = {
   kafka: ['@dpp/kafka'],
   system: ['@dpp/system-tests'],
   publisher: ['@dpp/outbox-publisher', '@dpp/cache'],
-  consumers: ['@dpp/activity-service', '@dpp/project-service'],
+  consumers: ['@dpp/activity-service', '@dpp/project-service', '@dpp/realtime-service'],
 };
 const ALL = Object.keys(SHARDS);
 
