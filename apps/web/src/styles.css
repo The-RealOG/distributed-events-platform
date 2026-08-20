@@ -998,3 +998,33 @@ label {
   border-radius: 2px;
   background: var(--accent);
 }
+
+/* ---------------------------------------------------------------- realtime status */
+.live-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  vertical-align: middle;
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.live-status::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--amber);
+}
+.live-live::before {
+  background: var(--green);
+}
+.live-offline::before {
+  background: var(--border-strong);
+}
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}

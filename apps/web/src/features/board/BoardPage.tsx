@@ -8,6 +8,7 @@ import { Icon } from '../../components/Icon';
 import { describeError } from '../../lib/api/errors';
 import { useApi } from '../../lib/AppProviders';
 import { queryKeys } from '../../lib/query/keys';
+import { useProjectRealtime } from '../../lib/realtime/useProjectRealtime';
 import { ActivityPanel } from '../activity/ActivityPanel';
 import { applyMove, dropTarget, moveTargets, type MoveRequest } from './moves';
 import { useTaskMutations } from './useTaskMutations';
@@ -68,6 +69,7 @@ export function BoardPage() {
     queryFn: ({ signal }) => api.getBoard(projectId, signal),
   });
   const { move } = useTaskMutations(projectId);
+  const live = useProjectRealtime(projectId);
   const [drag, setDrag] = useState<DragState | null>(null);
   // A dropped card is shown in its new place until the refetched board confirms it (or the
   // move fails, which refreshes the board and reports why). Local display state only: the
@@ -121,7 +123,12 @@ export function BoardPage() {
     <section className="project-page">
       <div className="project-header">
         <div>
-          <h1>{project.name}</h1>
+          <div className="title-row">
+            <h1>{project.name}</h1>
+            <span className={`live-status live-${live}`} role="status" title="Realtime updates">
+              {live === 'live' ? 'Live' : live === 'offline' ? 'Offline' : 'Reconnecting…'}
+            </span>
+          </div>
           {project.description && (
             <p className="muted project-description">{project.description}</p>
           )}

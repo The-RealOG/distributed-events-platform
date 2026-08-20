@@ -10,3 +10,15 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
 });
+
+// Component tests never open real sockets: an inert WebSocket that stays "connecting".
+// Realtime behaviour is covered by lib/realtime tests with their own fake.
+class InertWebSocket {
+  onopen: unknown = null;
+  onmessage: unknown = null;
+  onclose: unknown = null;
+  readonly readyState = 0;
+  send(): void {}
+  close(): void {}
+}
+globalThis.WebSocket = InertWebSocket as unknown as typeof WebSocket;

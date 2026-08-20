@@ -4,6 +4,8 @@ import { z } from 'zod';
 const envSchema = baseEnvSchema.extend(httpServerEnvSchema.shape).extend({
   // Internal address; never exposed to the browser.
   PROJECT_SERVICE_URL: z.url(),
+  // Realtime WebSockets are relayed only when this is set.
+  REALTIME_SERVICE_URL: z.url().optional(),
   UPSTREAM_CONNECT_TIMEOUT_MS: z.coerce.number().int().positive().default(2_000),
   // Must exceed the Project Service's own statement timeout so that its 503 arrives first.
   UPSTREAM_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),

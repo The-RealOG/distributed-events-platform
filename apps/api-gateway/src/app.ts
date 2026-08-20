@@ -12,6 +12,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import type { GatewayConfig } from './config.js';
 import { registerErrorHandling } from './errors.js';
 import { registerProjectServiceProxy } from './proxy.js';
+import { registerRealtimeProxy } from './realtime-proxy.js';
 
 export const SERVICE_NAME = 'api-gateway';
 
@@ -58,6 +59,13 @@ export async function buildApp(
   app.get('/ready', async (_request, reply) =>
     state.ready ? { status: 'ready' } : reply.code(503).send({ status: 'not_ready' }),
   );
+
+  if (config.REALTIME_SERVICE_URL) {
+    registerRealtimeProxy(app, {
+      upstreamUrl: config.REALTIME_SERVICE_URL,
+      allowedOrigins: config.CORS_ORIGINS,
+    });
+  }
 
   await registerProjectServiceProxy(app, {
     upstreamUrl: config.PROJECT_SERVICE_URL,
