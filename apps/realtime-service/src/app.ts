@@ -136,59 +136,70 @@ export async function buildApp(deps: RealtimeDeps): Promise<FastifyInstance> {
       closed?.inc();
     });
 
+    // Messages are handled strictly one after another per connection: a client may pipeline
+    // `subscribe` right behind `auth`, and it must see the authenticated state, not race it.
+    let queue: Promise<void> = Promise.resolve();
     socket.on('message', (raw) => {
-      void (async () => {
-        let parsed;
-        try {
-          parsed = realtimeClientMessage.safeParse(JSON.parse(frameText(raw)));
-        } catch {
-          parsed = undefined;
-        }
-        if (!parsed?.success) {
-          if (!client.userId) return reject('malformed');
-          return send({ type: 'error', code: 'BAD_MESSAGE', message: 'Unrecognised message' });
-        }
-        const message = parsed.data;
-        if (!client.userId) {
-          if (message.type !== 'auth') return reject('missing');
+      queue = queue
+        .then(async () => {
+          let parsed;
           try {
-            const principal = await authProvider.authenticate(message.token);
-            client.userId = principal.userId;
-            clearTimeout(authTimer);
-            send({ type: 'ready', userId: principal.userId });
-          } catch (err) {
-            reject(err instanceof AuthenticationError ? err.reason : 'invalid');
+            parsed = realtimeClientMessage.safeParse(JSON.parse(frameText(raw)));
+          } catch {
+            parsed = undefined;
           }
-          return;
-        }
-        if (message.type === 'auth') return;
-        if (message.type === 'unsubscribe') return hub.leave(client, message.projectId);
+          if (!parsed?.success) {
+            if (!client.userId) return reject('malformed');
+            return send({ type: 'error', code: 'BAD_MESSAGE', message: 'Unrecognised message' });
+          }
+          const message = parsed.data;
+          if (!client.userId) {
+            if (message.type !== 'auth') return reject('missing');
+            try {
+              const principal = await authProvider.authenticate(message.token);
+              client.userId = principal.userId;
+              clearTimeout(authTimer);
+              send({ type: 'ready', userId: principal.userId });
+            } catch (err) {
+              reject(err instanceof AuthenticationError ? err.reason : 'invalid');
+            }
+            return;
+          }
+          if (message.type === 'auth') return;
+          if (message.type === 'unsubscribe') return hub.leave(client, message.projectId);
 
-        // Authorization on every subscription, against the database (never trusted from the UI).
-        let access: Awaited<ReturnType<typeof projectReadAccess>>;
-        try {
-          access = await projectReadAccess(database.db, client.userId, message.projectId);
-        } catch {
-          return send({
-            type: 'error',
-            code: 'UNAVAILABLE',
-            message: 'Try again',
-            projectId: message.projectId,
-          });
-        }
-        if (access !== 'allowed') {
-          denied?.inc({ reason: access });
-          return send({
-            type: 'error',
-            code: access === 'forbidden' ? 'FORBIDDEN' : 'NOT_FOUND',
-            message: access === 'forbidden' ? 'Not a member of this project' : 'No such project',
-            projectId: message.projectId,
-          });
-        }
-        hub.join(client, message.projectId);
-        subscribed?.inc();
-        send({ type: 'subscribed', projectId: message.projectId });
-      })();
+          // Authorization on every subscription, against the database (never trusted from the UI).
+          let access: Awaited<ReturnType<typeof projectReadAccess>>;
+          try {
+            access = await projectReadAccess(database.db, client.userId, message.projectId);
+          } catch {
+            return send({
+              type: 'error',
+              code: 'UNAVAILABLE',
+              message: 'Try again',
+              projectId: message.projectId,
+            });
+          }
+          if (access !== 'allowed') {
+            denied?.inc({ reason: access });
+            return send({
+              type: 'error',
+              code: access === 'forbidden' ? 'FORBIDDEN' : 'NOT_FOUND',
+              message: access === 'forbidden' ? 'Not a member of this project' : 'No such project',
+              projectId: message.projectId,
+            });
+          }
+          hub.join(client, message.projectId);
+          subscribed?.inc();
+          send({ type: 'subscribed', projectId: message.projectId });
+        })
+        .catch((err: unknown) => {
+          // One failed message (e.g. a send on a closing socket) must not stop the connection's queue.
+          logger.warn(
+            { err: err instanceof Error ? err.message : String(err) },
+            'realtime message failed',
+          );
+        });
     });
   });
 
