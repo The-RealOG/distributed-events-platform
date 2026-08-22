@@ -18,6 +18,7 @@ export const SHARDS = {
   system: ['@dpp/system-tests'],
   publisher: ['@dpp/outbox-publisher', '@dpp/cache'],
   consumers: ['@dpp/activity-service', '@dpp/project-service', '@dpp/realtime-service'],
+  storage: ['@dpp/storage'],
 };
 const ALL = Object.keys(SHARDS);
 

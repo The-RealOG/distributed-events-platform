@@ -115,7 +115,7 @@ jobs:
       # in-progress pull instead of starting another).
       - name: Pre-pull container images
         run: |
-          for image in postgres:17-alpine apache/kafka:4.1.1 valkey/valkey:8-alpine testcontainers/ryuk:0.14.0; do
+          for image in postgres:17-alpine apache/kafka:4.1.1 valkey/valkey:8-alpine localstack/localstack:4.14.0 testcontainers/ryuk:0.14.0; do
             nohup docker pull -q "$image" > /dev/null 2>&1 &
           done
       - uses: actions/setup-node@v4
