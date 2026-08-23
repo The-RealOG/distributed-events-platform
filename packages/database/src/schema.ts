@@ -285,3 +285,52 @@ export const activityEvents = pgTable(
   // The API query: one project's history, newest first, cursor on id.
   (t) => [index('activity_events_project_id_idx').on(t.projectId, t.id.desc())],
 );
+
+/**
+ * Attachment metadata (ADR-021). The bytes live in object storage under `objectKey`, a key the
+ * server generates (never the user's file name). PostgreSQL and S3 cannot commit together, so:
+ *
+ *   pending  row created and a presigned upload issued; the object may or may not exist yet
+ *   ready    the server verified the object (HEAD: exists, size within the declared limit)
+ *   deleted  hidden from users; `objectDeletedAt` is set once the object is really gone
+ *
+ * A periodic sweep removes objects of abandoned uploads (pending too long) and retries object
+ * deletion for deleted rows, so every divergence between the two stores converges.
+ */
+export const attachments = pgTable(
+  'attachments',
+  {
+    id: uuid('id').primaryKey(),
+    workspaceId: uuid('workspace_id').notNull(),
+    projectId: uuid('project_id').notNull(),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id),
+    uploadedBy: uuid('uploaded_by')
+      .notNull()
+      .references(() => users.id),
+    objectKey: text('object_key').notNull().unique(),
+    originalFilename: text('original_filename').notNull(),
+    contentType: text('content_type').notNull(),
+    /** Declared at upload request; replaced by the stored object's size at finalization. */
+    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+    status: text('status').notNull().default('pending'),
+    createdAt: createdAt(),
+    readyAt: timestamp('ready_at', { withTimezone: true }),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    objectDeletedAt: timestamp('object_deleted_at', { withTimezone: true }),
+  },
+  (t) => [
+    check('attachments_status', sql`${t.status} in ('pending', 'ready', 'deleted')`),
+    check('attachments_size_positive', sql`${t.sizeBytes} > 0`),
+    index('attachments_task_ready_idx')
+      .on(t.taskId)
+      .where(sql`${t.status} = 'ready'`),
+    // The sweep: abandoned pending uploads and deleted rows whose object is still there.
+    index('attachments_sweep_idx')
+      .on(t.status, t.createdAt)
+      .where(
+        sql`${t.status} = 'pending' or (${t.status} = 'deleted' and ${t.objectDeletedAt} is null)`,
+      ),
+  ],
+);

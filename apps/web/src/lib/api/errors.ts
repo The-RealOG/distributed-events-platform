@@ -54,6 +54,7 @@ function kindFromCode(code: ErrorCode): ApiErrorKind {
   switch (code) {
     case 'VALIDATION_FAILED':
     case 'BAD_REQUEST':
+    case 'UNSUPPORTED_MEDIA_TYPE':
       return 'validation';
     case 'UNAUTHENTICATED':
     case 'TOKEN_EXPIRED':
@@ -65,6 +66,7 @@ function kindFromCode(code: ErrorCode): ApiErrorKind {
     case 'VERSION_CONFLICT':
       return 'version_conflict';
     case 'CONFLICT':
+    case 'UPLOAD_INCOMPLETE':
       return 'conflict';
     case 'PAYLOAD_TOO_LARGE':
       return 'payload_too_large';

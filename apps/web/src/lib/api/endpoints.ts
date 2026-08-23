@@ -1,5 +1,8 @@
 import {
   activityPageDto,
+  attachmentDownloadDto,
+  attachmentDto,
+  attachmentUploadDto,
   boardDto,
   commentDto,
   devLoginResponse,
@@ -69,6 +72,18 @@ export function createApi(client: ApiClient) {
     unassign: (taskId: string, userId: string) =>
       r('DELETE', `/tasks/${id(taskId)}/assignees/${id(userId)}`),
 
+    listAttachments: (taskId: string, signal?: AbortSignal) =>
+      r('GET', `/tasks/${id(taskId)}/attachments`, { schema: z.array(attachmentDto), signal }),
+    requestAttachmentUpload: (
+      taskId: string,
+      input: { filename: string; contentType: string; sizeBytes: number },
+    ) =>
+      r('POST', `/tasks/${id(taskId)}/attachments`, { body: input, schema: attachmentUploadDto }),
+    completeAttachment: (attachmentId: string) =>
+      r('POST', `/attachments/${id(attachmentId)}/complete`, { schema: attachmentDto }),
+    attachmentDownload: (attachmentId: string) =>
+      r('GET', `/attachments/${id(attachmentId)}/download`, { schema: attachmentDownloadDto }),
+    deleteAttachment: (attachmentId: string) => r('DELETE', `/attachments/${id(attachmentId)}`),
     listComments: (taskId: string, signal?: AbortSignal) =>
       r('GET', `/tasks/${id(taskId)}/comments`, { schema: z.array(commentDto), signal }),
     addComment: (taskId: string, body: string) =>

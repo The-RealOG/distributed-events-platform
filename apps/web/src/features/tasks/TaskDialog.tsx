@@ -8,6 +8,7 @@ import { describeError, isApiError } from '../../lib/api/errors';
 import { useApi } from '../../lib/AppProviders';
 import { queryKeys } from '../../lib/query/keys';
 import { Assignees } from './Assignees';
+import { Attachments } from './Attachments';
 import { Comments } from './Comments';
 import { TaskEditor } from './TaskEditor';
 
@@ -94,6 +95,7 @@ export function TaskDialog() {
             projectId={projectId}
             workspaceId={board.project.workspaceId}
           />
+          <Attachments taskId={task.data.id} />
           <Comments taskId={task.data.id} />
           <section className="stack danger-zone">
             {remove.isError && (

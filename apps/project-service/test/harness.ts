@@ -3,7 +3,7 @@ import { LocalJwtAuthProvider } from '@dpp/auth';
 import { createDatabase, type DatabaseHandle } from '@dpp/database';
 import type { FastifyInstance } from 'fastify';
 import { inject } from 'vitest';
-import { buildApp } from '../src/app.js';
+import { buildApp, type AppDependencies } from '../src/app.js';
 import { loadProjectServiceConfig } from '../src/config.js';
 
 export const JWT_SECRET = 'integration-test-secret-integration-test';
@@ -32,7 +32,10 @@ export interface Harness {
 }
 
 /** Builds the real application wired to the Testcontainers PostgreSQL. */
-export async function createHarness(databaseUrl = inject('databaseUrl')): Promise<Harness> {
+export async function createHarness(
+  databaseUrl = inject('databaseUrl'),
+  extra: Partial<AppDependencies> = {},
+): Promise<Harness> {
   const config = loadProjectServiceConfig({
     PORT: '3001',
     LOG_LEVEL: 'silent',
@@ -53,7 +56,7 @@ export async function createHarness(databaseUrl = inject('databaseUrl')): Promis
     ttlSeconds: 300,
   });
   const app = buildApp(
-    { config, database, authProvider, devTokenIssuer: authProvider },
+    { config, database, authProvider, devTokenIssuer: authProvider, ...extra },
     { ready: true },
   );
   await app.ready();

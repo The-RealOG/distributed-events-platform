@@ -13,4 +13,5 @@ export const queryKeys = {
   activity: (projectId: string) => ['activity', projectId] as const,
   task: (taskId: string) => ['task', taskId] as const,
   taskComments: (taskId: string) => ['task', taskId, 'comments'] as const,
+  taskAttachments: (taskId: string) => ['task', taskId, 'attachments'] as const,
 };

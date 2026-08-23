@@ -12,7 +12,14 @@ export const API_PREFIX = '/api';
  * /api is a 404 at the gateway, so internal endpoints (/health, /ready, future admin routes)
  * are never reachable from the browser by accident.
  */
-export const PROJECT_SERVICE_PREFIXES = ['/auth/', '/me', '/workspaces', '/projects', '/tasks'];
+export const PROJECT_SERVICE_PREFIXES = [
+  '/auth/',
+  '/me',
+  '/workspaces',
+  '/projects',
+  '/tasks',
+  '/attachments',
+];
 
 // Request headers forwarded upstream. An allowlist keeps cookies, spoofed forwarding headers
 // and per-hop IDs from leaking into internal services.

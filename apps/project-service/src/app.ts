@@ -16,6 +16,8 @@ import type { ProjectServiceConfig } from './config.js';
 import { registerPrincipal } from './http/authenticate.js';
 import { registerErrorHandling } from './http/errors.js';
 import { activityRoutes } from './modules/activity/routes.js';
+import { attachmentRoutes } from './modules/attachments/routes.js';
+import type { AttachmentService } from './modules/attachments/service.js';
 import { ActivityService } from './modules/activity/service.js';
 import { devLoginRoutes, identityRoutes } from './modules/identity/routes.js';
 import { IdentityService, type TokenIssuer } from './modules/identity/service.js';
@@ -45,6 +47,8 @@ export interface AppDependencies {
   /** Present only when the shared cache is enabled (ADR-015). */
   boardCache?: BoardCache | undefined;
   metrics?: Metrics | undefined;
+  /** Present only when object storage is configured (ADR-021). */
+  attachments?: AttachmentService | undefined;
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -108,6 +112,9 @@ export function buildApp(deps: AppDependencies, state: AppState): FastifyInstanc
   });
   void app.register(taskRoutes, { service: new TaskService(database.db), authProvider });
   void app.register(activityRoutes, { service: new ActivityService(database.db), authProvider });
+  if (deps.attachments) {
+    void app.register(attachmentRoutes, { service: deps.attachments, authProvider });
+  }
 
   return app;
 }

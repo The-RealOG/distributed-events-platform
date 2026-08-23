@@ -1028,3 +1028,62 @@ label {
   align-items: center;
   gap: 0.25rem;
 }
+
+/* ---------------------------------------------------------------- attachments */
+.attachments-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.attachment-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.attachment-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.attachment-list li.failed {
+  border-color: #f5b5b5;
+  background: var(--red-soft);
+}
+.file-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  flex: none;
+}
+.file-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.file-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-body progress {
+  width: 100%;
+  height: 6px;
+  accent-color: var(--accent);
+}
+.error-text {
+  color: var(--red);
+}

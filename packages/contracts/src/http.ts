@@ -16,6 +16,8 @@ export const errorCodeSchema = z.enum([
   'VERSION_CONFLICT',
   'CONFLICT',
   'PAYLOAD_TOO_LARGE',
+  'UNSUPPORTED_MEDIA_TYPE',
+  'UPLOAD_INCOMPLETE',
   'DEPENDENCY_UNAVAILABLE',
   'INTERNAL',
 ]);
@@ -141,3 +143,51 @@ export const activityPageDto = z.object({
   people: z.record(z.string(), z.string()),
 });
 export type ActivityPageDto = z.infer<typeof activityPageDto>;
+
+/**
+ * Attachments (ADR-021). The API is the control plane only: bytes go browser ↔ object storage
+ * through short-lived presigned requests.
+ *
+ * Accepted content types (declared by the client and enforced by S3 at upload; this is a
+ * policy on declared types, not content inspection or malware scanning).
+ */
+export const ATTACHMENT_CONTENT_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'application/pdf',
+  'text/plain',
+  'text/csv',
+  'text/markdown',
+  'application/json',
+  'application/zip',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'video/mp4',
+  'video/webm',
+] as const;
+
+export const attachmentDto = z.object({
+  id: z.uuid(),
+  taskId: z.uuid(),
+  filename: z.string(),
+  contentType: z.string(),
+  sizeBytes: z.number().int(),
+  status: z.enum(['pending', 'ready']),
+  uploadedBy: z.uuid(),
+  createdAt: z.string(),
+});
+export type AttachmentDto = z.infer<typeof attachmentDto>;
+
+export const attachmentUploadDto = z.object({
+  attachment: attachmentDto,
+  upload: z.object({ url: z.string(), fields: z.record(z.string(), z.string()) }),
+  expiresAt: z.string(),
+  maxBytes: z.number().int(),
+});
+export type AttachmentUploadDto = z.infer<typeof attachmentUploadDto>;
+
+export const attachmentDownloadDto = z.object({ url: z.string(), expiresAt: z.string() });
+export type AttachmentDownloadDto = z.infer<typeof attachmentDownloadDto>;
