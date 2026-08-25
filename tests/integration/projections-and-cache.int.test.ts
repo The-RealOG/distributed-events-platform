@@ -309,6 +309,16 @@ describe('Phase 7: shared board cache with Kafka-driven invalidation', { timeout
     expect((await board(p)).cache).toBe('HIT'); // replica A reuses what B just filled
     expect(titles(await board(p))).toEqual(['v2']);
 
+    // Prometheus view of the same behaviour (counters read from the live process).
+    const metricsText = await (await fetch(`${replicaA.url}/metrics`)).text();
+    expect(metricsText).toMatch(/cache_operations_total\{[^}]*result="hit"[^}]*\} [1-9]/);
+    expect(metricsText).toMatch(/http_requests_total\{[^}]*route="\/projects\/:id\/board"/);
+    expect(metricsText).not.toContain(p.projectId); // no per-entity labels
+    const invalidatorMetrics = await (await fetch(`${invalidator!.url}/metrics`)).text();
+    expect(invalidatorMetrics).toMatch(
+      /kafka_consumer_messages_total\{[^}]*consumer="cache-invalidator"[^}]*result="processed"[^}]*\} [1-9]/,
+    );
+
     const statsA = (await call('GET', '/status', { base: replicaA.url })).body.cache;
     expect(statsA.hits).toBeGreaterThan(0);
     expect(statsA.misses).toBeGreaterThan(0);

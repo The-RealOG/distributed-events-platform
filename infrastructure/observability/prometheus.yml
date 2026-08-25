@@ -1,0 +1,16 @@
+# Local (Compose) scraping of every service's /metrics (ADR-020). The endpoints are internal:
+# the gateway only proxies /api/*, and in AWS CloudFront only forwards /api/*.
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+scrape_configs:
+  - job_name: services
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - api-gateway:3000
+          - project-service:3001
+          - outbox-publisher:3002
+          - activity-service:3003
+          - cache-invalidator:3004
+          - realtime-service:3005

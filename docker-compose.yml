@@ -39,6 +39,13 @@ x-activity-service-build: &activity-service-build
     APP: '@dpp/activity-service'
     APP_DIR: apps/activity-service
 
+x-realtime-service-build: &realtime-service-build
+  context: .
+  dockerfile: infrastructure/docker/node-service.Dockerfile
+  args:
+    APP: '@dpp/realtime-service'
+    APP_DIR: apps/realtime-service
+
 x-cache-invalidator-build: &cache-invalidator-build
   context: .
   dockerfile: infrastructure/docker/node-service.Dockerfile
@@ -103,6 +110,15 @@ services:
       # Optional acceleration: if valkey is down, board reads go to PostgreSQL.
       CACHE_ENABLED: 'true'
       REDIS_URL: redis://valkey:6379
+      # Attachments: S3-compatible storage (LocalStack). Browsers use localhost:4566.
+      STORAGE_ENABLED: 'true'
+      STORAGE_BUCKET: dpp-attachments
+      STORAGE_REGION: us-east-1
+      STORAGE_ENDPOINT: http://s3:4566
+      STORAGE_PUBLIC_ENDPOINT: http://localhost:4566
+      STORAGE_FORCE_PATH_STYLE: 'true'
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
     expose:
       - '3001'
     depends_on:
@@ -120,6 +136,7 @@ services:
     build: *api-gateway-build
     image: dpp/api-gateway:local
     environment:
+      REALTIME_SERVICE_URL: http://realtime-service:3005
       PORT: 3000
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PROJECT_SERVICE_URL: http://project-service:3001
@@ -283,6 +300,71 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
+  realtime-service:
+    build: *realtime-service-build
+    image: dpp/realtime-service:local
+    command: ['node', '--disable-warning=TimeoutNegativeWarning', 'dist/server.js']
+    environment:
+      PORT: 3005
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: *database-url
+      JWT_SECRET: ${JWT_SECRET:-local-development-only-jwt-secret-000}
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: realtime-service
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3005/health']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # S3-compatible object storage for attachments (bytes go browser <-> here directly).
+  s3:
+    image: localstack/localstack:4.14.0
+    environment:
+      SERVICES: s3
+    ports:
+      - '4566:4566'
+  s3-init:
+    image: amazon/aws-cli:2.37.4
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ['sh', '-c']
+    command:
+      - >-
+        until aws --endpoint-url http://s3:4566 s3api list-buckets >/dev/null 2>&1; do sleep 1; done;
+        aws --endpoint-url http://s3:4566 s3api create-bucket --bucket dpp-attachments >/dev/null 2>&1 || true;
+        aws --endpoint-url http://s3:4566 s3api put-bucket-cors --bucket dpp-attachments --cors-configuration
+        '{"CORSRules":[{"AllowedOrigins":["http://localhost:8080","http://localhost:5173"],"AllowedMethods":["POST","GET"],"AllowedHeaders":["*"],"MaxAgeSeconds":600}]}'
+    depends_on:
+      - s3
+
+  # Metrics: http://localhost:9090 (Prometheus), http://localhost:3300 (Grafana, admin/admin).
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    volumes:
+      - ./infrastructure/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - '9090:9090'
+  grafana:
+    image: grafana/grafana:13.2.2
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./infrastructure/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - '3300:3000'
+    depends_on:
+      - prometheus
 
 volumes:
   kafka-data:

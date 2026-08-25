@@ -5,6 +5,7 @@ import {
   commentEvents,
   REALTIME_CLOSE,
   taskEvents,
+  toRealtimeEnvelope,
   type DomainEvent,
   type RealtimeServerMessage,
 } from '@dpp/contracts';
@@ -397,8 +398,15 @@ describe('connection health', () => {
     const client = await subscribed(r.url, a, a.projectId);
     // Stop reading from the socket: the server's send buffer fills up.
     (client.socket as unknown as { _socket: { pause(): void } })._socket.pause();
-    const flood = Array.from({ length: 400 }, () => allEventTypes(a.projectId)[0]!);
-    await publish(topic, ...flood);
+    // Enough data to fill the kernel's TCP buffers too (several MB on Linux), so the server's
+    // own send buffer starts to grow; broadcast straight into this replica's hub.
+    for (let i = 0; i < 40_000 && r.hub.counters.slowClientDisconnects === 0; i++) {
+      r.hub.broadcast({
+        ...toRealtimeEnvelope(allEventTypes(a.projectId)[0]!),
+        eventId: randomUUID(),
+      });
+      if (i % 500 === 0) await new Promise((res) => setImmediate(res));
+    }
     await waitFor(() => r.hub.counters.slowClientDisconnects === 1, {
       timeoutMs: 30_000,
       description: 'slow client closed',

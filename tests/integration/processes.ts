@@ -43,9 +43,13 @@ export async function startService(
   });
   let raw = '';
   const logs: LogLine[] = [];
+  // Chunks do not align with lines: keep the unfinished tail until its newline arrives.
+  let pending = '';
   const onData = (chunk: Buffer) => {
     raw += chunk.toString();
-    for (const line of chunk.toString().split('\n')) {
+    const lines = (pending + chunk.toString()).split('\n');
+    pending = lines.pop() ?? '';
+    for (const line of lines) {
       if (!line.trim()) continue;
       try {
         logs.push(JSON.parse(line) as LogLine);
