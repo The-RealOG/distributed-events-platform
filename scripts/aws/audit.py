@@ -110,7 +110,8 @@ expected = {("alb", "gateway", "3000"), ("gateway", "project-service", "3001"), 
             ("outbox-publisher", "rds", "5432"), ("tools", "rds", "5432"), ("outbox-publisher", "msk", "9098"),
             ("tools", "msk", "9098"), ("cloudfront-prefix-list", "alb", "80"),
             ("activity-service", "rds", "5432"), ("activity-service", "msk", "9098"),
-            ("cache-invalidator", "msk", "9098")}
+            ("cache-invalidator", "msk", "9098"), ("gateway", "realtime-service", "3005"),
+            ("realtime-service", "rds", "5432"), ("realtime-service", "msk", "9098")}
 redis_on = bool(aws("elasticache", "describe-replication-groups", default={"ReplicationGroups": []}).get("ReplicationGroups"))
 if redis_on:
     expected |= {("project-service", "redis", "6379"), ("cache-invalidator", "redis", "6379")}
@@ -167,6 +168,13 @@ for b in [f"{P}-attachments-{inv['account']}-{REGION}", f"{P}-web-{inv['account'
                       "policy_is_public": status, "cors": cors, "versioning": ver, "lifecycle_rules": [r_["ID"] for r_ in lc]})
     check(all(pab.values()) and not status, f"s3://{b}: all public access blocked, policy not public")
     check(enc in ("AES256", "aws:kms") and own == "BucketOwnerEnforced", f"s3://{b}: {enc} encryption, ACLs disabled")
+    if "-attachments-" in b:
+        origins = sorted({o for r_ in cors or [] for o in r_["AllowedOrigins"]})
+        methods = sorted({m for r_ in cors or [] for m in r_["AllowedMethods"]})
+        check(len(origins) == 1 and origins[0].startswith("https://") and "*" not in origins[0] and methods == ["GET", "POST"],
+              f"s3://{b}: CORS only for the app origin ({', '.join(origins) or 'none'}), methods {methods}")
+    else:
+        check(not cors, f"s3://{b}: no CORS (served only via CloudFront)")
 
 # ---- ECR
 repos = aws("ecr", "describe-repositories")["repositories"]
@@ -179,14 +187,15 @@ for r in mine:
     inv["ecr"].append({"name": r["repositoryName"], "scan_on_push": r["imageScanningConfiguration"]["scanOnPush"],
                        "tag_mutability": r["imageTagMutability"], "encryption": r["encryptionConfiguration"]["encryptionType"],
                        "lifecycle_policy": bool(lcp), "repository_policy": bool(rpol), "images": len(imgs)})
-check(sorted(x["name"] for x in inv["ecr"]) == sorted(f"{P}/{n}" for n in ["api-gateway", "kafka-tools", "outbox-publisher", "project-service", "activity-service", "cache-invalidator"]),
-      f"ECR: exactly the 6 deployable images ({', '.join(x['name'].split('/')[1] for x in inv['ecr'])})")
+check(sorted(x["name"] for x in inv["ecr"]) == sorted(f"{P}/{n}" for n in ["api-gateway", "kafka-tools", "outbox-publisher", "project-service", "activity-service", "cache-invalidator", "realtime-service"]),
+      f"ECR: exactly the 7 deployable images ({', '.join(x['name'].split('/')[1] for x in inv['ecr'])})")
 check(all(x["scan_on_push"] and x["tag_mutability"] == "IMMUTABLE" and x["lifecycle_policy"] and not x["repository_policy"] for x in inv["ecr"]),
       "ECR: scan on push, immutable tags, lifecycle policy, no repository policy (account-only access)")
 
 # ---- ECS
 cl = aws("ecs", "describe-clusters", "--clusters", P, "--include", "SETTINGS")["clusters"][0]
-svcs = aws("ecs", "describe-services", "--cluster", P, "--services", "project-service", "api-gateway", "outbox-publisher")["services"]
+svcs = aws("ecs", "describe-services", "--cluster", P, "--services", "project-service", "api-gateway", "outbox-publisher",
+            "activity-service", "cache-invalidator", "realtime-service")["services"]
 inv["ecs"] = {"cluster": cl["clusterName"], "status": cl["status"], "capacity_providers": cl["capacityProviders"],
               "container_insights": [s_["value"] for s_ in cl["settings"] if s_["name"] == "containerInsights"],
               "services": [{"name": s_["serviceName"], "desired": s_["desiredCount"], "running": s_["runningCount"],

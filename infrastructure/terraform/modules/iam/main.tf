@@ -12,6 +12,7 @@ variable "log_group_arns" { type = list(string) }
 variable "msk_cluster_arn" { type = string }
 variable "ecr_repository_arns" { type = list(string) }
 variable "web_bucket_arn" { type = string }
+variable "attachments_bucket_arn" { type = string }
 variable "distribution_arn" { type = string }
 variable "cluster_arn" { type = string }
 variable "ssm_parameter_arns" { type = list(string) }
@@ -62,9 +63,15 @@ resource "aws_iam_role_policy" "execution_secrets" {
 locals {
   msk_topics = "${replace(var.msk_cluster_arn, ":cluster/", ":topic/")}/*"
   msk_groups = "${replace(var.msk_cluster_arn, ":cluster/", ":group/")}/*"
-  task_roles = ["api-gateway", "project-service", "outbox-publisher", "migrate", "kafka-tools", "activity-service", "cache-invalidator"]
-  # Kafka consumers: each role may join only its own consumer group (= its logical name).
-  msk_consumers = ["activity-service", "cache-invalidator"]
+  task_roles = ["api-gateway", "project-service", "outbox-publisher", "migrate", "kafka-tools", "activity-service", "cache-invalidator", "realtime-service"]
+  # Kafka consumers: each role may join only its own consumer group (= its logical name). The
+  # realtime service runs one group per replica (every replica sees every event; ADR-017), so its
+  # groups share a prefix.
+  msk_consumers = {
+    "activity-service"  = "activity-service"
+    "cache-invalidator" = "cache-invalidator"
+    "realtime-service"  = "realtime-service.*"
+  }
 }
 
 resource "aws_iam_role" "task" {
@@ -87,7 +94,7 @@ data "aws_iam_policy_document" "ecs_exec" {
 }
 
 resource "aws_iam_role_policy" "ecs_exec" {
-  for_each = toset(["api-gateway", "project-service", "outbox-publisher", "activity-service", "cache-invalidator"])
+  for_each = toset(["api-gateway", "project-service", "outbox-publisher", "activity-service", "cache-invalidator", "realtime-service"])
   name     = "ecs-exec"
   role     = aws_iam_role.task[each.key].id
   policy   = data.aws_iam_policy_document.ecs_exec.json
@@ -105,7 +112,7 @@ data "aws_iam_policy_document" "msk_publisher" {
 }
 
 data "aws_iam_policy_document" "msk_consumer" {
-  for_each = toset(local.msk_consumers)
+  for_each = local.msk_consumers
   statement {
     actions   = ["kafka-cluster:Connect", "kafka-cluster:DescribeCluster"]
     resources = [var.msk_cluster_arn]
@@ -116,12 +123,12 @@ data "aws_iam_policy_document" "msk_consumer" {
   }
   statement {
     actions   = ["kafka-cluster:AlterGroup", "kafka-cluster:DescribeGroup"]
-    resources = ["${replace(var.msk_cluster_arn, ":cluster/", ":group/")}/${each.key}"]
+    resources = ["${replace(var.msk_cluster_arn, ":cluster/", ":group/")}/${each.value}"]
   }
 }
 
 resource "aws_iam_role_policy" "msk_consumer" {
-  for_each = toset(local.msk_consumers)
+  for_each = local.msk_consumers
   name     = "msk-consume"
   role     = aws_iam_role.task[each.key].id
   policy   = data.aws_iam_policy_document.msk_consumer[each.key].json
@@ -131,6 +138,26 @@ resource "aws_iam_role_policy" "msk_publisher" {
   name   = "msk-produce"
   role   = aws_iam_role.task["outbox-publisher"].id
   policy = data.aws_iam_policy_document.msk_publisher.json
+}
+
+# Attachments (ADR-021): the project-service signs presigned POST/GET URLs with its own role, so
+# the role needs exactly the object actions the browser performs through them, plus HEAD (GetObject)
+# to finalize, Delete for cleanup, and ListBucket so a missing object reads as 404, not 403.
+data "aws_iam_policy_document" "attachments" {
+  statement {
+    actions   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
+    resources = ["${var.attachments_bucket_arn}/workspaces/*"]
+  }
+  statement {
+    actions   = ["s3:ListBucket"]
+    resources = [var.attachments_bucket_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "attachments" {
+  name   = "attachments-objects"
+  role   = aws_iam_role.task["project-service"].id
+  policy = data.aws_iam_policy_document.attachments.json
 }
 
 data "aws_iam_policy_document" "msk_tools" {

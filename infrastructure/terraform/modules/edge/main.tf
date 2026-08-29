@@ -8,6 +8,7 @@ variable "web_bucket" { type = string }
 variable "web_bucket_arn" { type = string }
 variable "web_bucket_regional_domain" { type = string }
 variable "alb_dns_name" { type = string }
+variable "upload_origin" { type = string }
 variable "origin_verify_value" {
   type      = string
   sensitive = true
@@ -39,7 +40,7 @@ resource "aws_cloudfront_response_headers_policy" "web" {
   name = "${var.name}-web-security"
   security_headers_config {
     content_security_policy {
-      content_security_policy = "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+      content_security_policy = "default-src 'self'; connect-src 'self' ${var.upload_origin}; img-src 'self' data:; style-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
       override                = true
     }
     content_type_options { override = true }

@@ -5,8 +5,8 @@ locals {
   name       = "dpp-${var.environment}"
   account_id = data.aws_caller_identity.current.account_id
   azs        = slice(data.aws_availability_zones.available.names, 0, 2)
-  services   = ["api-gateway", "project-service", "outbox-publisher", "migrate", "kafka-tools", "activity-service", "cache-invalidator"]
-  images     = ["api-gateway", "project-service", "outbox-publisher", "kafka-tools", "activity-service", "cache-invalidator"]
+  services   = ["api-gateway", "project-service", "outbox-publisher", "migrate", "kafka-tools", "activity-service", "cache-invalidator", "realtime-service"]
+  images     = ["api-gateway", "project-service", "outbox-publisher", "kafka-tools", "activity-service", "cache-invalidator", "realtime-service"]
 
   # The deployed image tag (git SHA) lives in SSM: CI updates it, Terraform reads it back, so both
   # always agree on what runs. Until the first build it is "bootstrap" and services run 0 tasks.
@@ -124,6 +124,19 @@ module "edge" {
   web_bucket_regional_domain = module.storage.web_bucket_regional_domain
   alb_dns_name               = module.alb.dns_name
   origin_verify_value        = module.secrets.origin_verify_value
+  # The browser uploads attachments straight to S3 (presigned POST), so CSP must allow it.
+  upload_origin = "https://${module.storage.attachments_bucket}.s3.${var.aws_region}.amazonaws.com"
+}
+
+# Browsers upload (POST) and download (GET) attachment bytes directly; only the app's origin.
+resource "aws_s3_bucket_cors_configuration" "attachments" {
+  bucket = module.storage.attachments_bucket
+  cors_rule {
+    allowed_origins = ["https://${module.edge.domain_name}"]
+    allowed_methods = ["POST", "GET"]
+    allowed_headers = ["*"]
+    max_age_seconds = 600
+  }
 }
 
 module "iam" {
@@ -136,6 +149,7 @@ module "iam" {
   msk_cluster_arn                = module.kafka.arn
   ecr_repository_arns            = values(module.ecr.repository_arns)
   web_bucket_arn                 = module.storage.web_bucket_arn
+  attachments_bucket_arn         = module.storage.attachments_bucket_arn
   distribution_arn               = module.edge.distribution_arn
   cluster_arn                    = module.cluster.cluster_arn
   ssm_parameter_arns             = [aws_ssm_parameter.image_tag.arn, aws_ssm_parameter.deploy_config.arn]

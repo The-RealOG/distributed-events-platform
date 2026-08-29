@@ -1,4 +1,4 @@
-# Private S3 buckets: attachments (future file-storage phase) and the web app's static files
+# Private S3 buckets: attachments (ADR-021; bytes only, metadata in PostgreSQL) and the web app's static files
 # (served only through CloudFront Origin Access Control; see the edge module).
 variable "name" { type = string }
 variable "account_id" { type = string }

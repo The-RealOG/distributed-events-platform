@@ -42,7 +42,12 @@ module "project_service" {
     CACHE_ENABLED     = "true"
     REDIS_URL         = "rediss://${module.redis.endpoint}:6379"
     CACHE_TTL_SECONDS = "300"
-  } : {})
+    } : {}, {
+    # Attachments (ADR-021): bytes go browser ⇄ S3 directly via short-lived presigned URLs.
+    STORAGE_ENABLED = "true"
+    STORAGE_BUCKET  = module.storage.attachments_bucket
+    STORAGE_REGION  = var.aws_region
+  })
   secrets                = merge(local.app_db, { JWT_SECRET = module.secrets.jwt_secret_arn })
   create_service         = true
   cluster_arn            = module.cluster.cluster_arn
@@ -69,7 +74,9 @@ module "api_gateway" {
   environment = merge(local.common_env, {
     PORT                = "3000"
     PROJECT_SERVICE_URL = "http://project-service.${local.discovery_domain}:3001"
-    CORS_ORIGINS        = "https://${module.edge.domain_name}"
+    # WebSocket relay to the realtime service (ADR-016); same origin as the SPA via CloudFront.
+    REALTIME_SERVICE_URL = "http://realtime-service.${local.discovery_domain}:3005"
+    CORS_ORIGINS         = "https://${module.edge.domain_name}"
   })
   create_service          = true
   cluster_arn             = module.cluster.cluster_arn
@@ -160,6 +167,36 @@ module "cache_invalidator" {
   security_group_id = module.security.ids["cache_invalidator"]
 }
 
+# Kafka → WebSocket notifications (ADR-016/017). Reached only from the gateway's relay; each
+# replica consumes every event in its own consumer group and notifies its local sockets.
+module "realtime_service" {
+  source             = "../../modules/ecs-service"
+  name               = "${local.name}-realtime-service"
+  container_name     = "realtime-service"
+  image              = local.image["realtime-service"]
+  command            = ["node", "--disable-warning=TimeoutNegativeWarning", "dist/server.js"]
+  cpu                = 256
+  memory             = 512
+  port               = 3005
+  health_check_path  = "/health"
+  execution_role_arn = module.iam.execution_role_arn
+  task_role_arn      = module.iam.task_role_arns["realtime-service"]
+  log_group_name     = module.logs.log_group_names["realtime-service"]
+  region             = var.aws_region
+  environment = merge(local.common_env, local.db_env, local.kafka_env, {
+    PORT            = "3005"
+    KAFKA_CLIENT_ID = "realtime-service"
+  })
+  secrets                = merge(local.app_db, { JWT_SECRET = module.secrets.jwt_secret_arn })
+  create_service         = true
+  cluster_arn            = module.cluster.cluster_arn
+  desired_count          = local.deployed ? 1 : 0
+  subnet_ids             = module.networking.public_subnet_ids
+  security_group_id      = module.security.ids["realtime_service"]
+  discovery_namespace_id = module.cluster.namespace_id
+  register_in_discovery  = true
+}
+
 # One-shot: apply migrations as the database owner, then (re)create the least-privilege app role.
 module "migrate" {
   source             = "../../modules/ecs-service"
@@ -214,13 +251,14 @@ resource "aws_ssm_parameter" "deploy_config" {
     web_bucket      = module.storage.web_bucket
     task_subnets    = module.networking.public_subnet_ids
     ecr             = module.ecr.repository_urls
-    services        = concat(["project-service", "api-gateway", "outbox-publisher", "activity-service"], var.enable_redis ? ["cache-invalidator"] : [])
+    services        = concat(["project-service", "api-gateway", "outbox-publisher", "activity-service", "realtime-service"], var.enable_redis ? ["cache-invalidator"] : [])
     families = {
       "project-service"   = module.project_service.family
       "api-gateway"       = module.api_gateway.family
       "outbox-publisher"  = module.outbox_publisher.family
       "activity-service"  = module.activity_service.family
       "cache-invalidator" = module.cache_invalidator.family
+      "realtime-service"  = module.realtime_service.family
       "migrate"           = module.migrate.family
       "kafka-tools"       = module.kafka_tools.family
     }
@@ -230,6 +268,7 @@ resource "aws_ssm_parameter" "deploy_config" {
       "outbox-publisher"  = module.security.ids["outbox_publisher"]
       "activity-service"  = module.security.ids["activity_service"]
       "cache-invalidator" = module.security.ids["cache_invalidator"]
+      "realtime-service"  = module.security.ids["realtime_service"]
       "migrate"           = module.security.ids["tools"]
       "kafka-tools"       = module.security.ids["tools"]
     }

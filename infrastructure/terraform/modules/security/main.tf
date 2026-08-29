@@ -7,6 +7,7 @@
 #                                                    activity-service ──5432/9098──▶ rds/msk
 #                                  project-service, cache-invalidator ──6379──▶ redis (TLS)
 #                                                   cache-invalidator ──9098──▶ msk
+#                       gateway ──3005──▶ realtime-service ──5432/9098──▶ rds/msk
 #
 # Tasks may open outbound HTTPS (443) to reach AWS APIs (ECR, Secrets Manager, CloudWatch,
 # SSM for ECS Exec). Data stores have no internet-facing rules and no egress rules.
@@ -27,6 +28,7 @@ locals {
     tools             = "one-off tasks: migrations, kafka-tools"
     activity_service  = "activity-service tasks (Kafka consumer, no ingress)"
     cache_invalidator = "cache-invalidator tasks (Kafka consumer, no ingress)"
+    realtime_service  = "realtime-service tasks (WebSockets via the gateway; Kafka consumer)"
     rds               = "PostgreSQL (RDS)"
     msk               = "Kafka brokers (MSK)"
     redis             = "Redis/Valkey (ElastiCache)"
@@ -45,8 +47,11 @@ locals {
     activity_to_msk    = ["activity_service", "msk", 9098]
     invalidator_to_msk = ["cache_invalidator", "msk", 9098]
     invalidator_redis  = ["cache_invalidator", "redis", 6379]
+    gateway_realtime   = ["gateway", "realtime_service", 3005]
+    realtime_to_rds    = ["realtime_service", "rds", 5432]
+    realtime_to_msk    = ["realtime_service", "msk", 9098]
   }
-  https_egress = ["gateway", "project_service", "outbox_publisher", "tools", "activity_service", "cache_invalidator"]
+  https_egress = ["gateway", "project_service", "outbox_publisher", "tools", "activity_service", "cache_invalidator", "realtime_service"]
 }
 
 resource "aws_security_group" "this" {
