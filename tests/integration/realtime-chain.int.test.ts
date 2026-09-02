@@ -26,6 +26,7 @@ let realtime: ServiceProcess;
 let gateway: ServiceProcess;
 let publisher: ServiceProcess;
 const JWT_SECRET = 'realtime-chain-secret-realtime-chain-secret';
+const APP_ORIGIN = 'https://app.example';
 
 beforeAll(async () => {
   [postgres, kafka] = await Promise.all([startPostgres(), startKafka()]);
@@ -63,6 +64,7 @@ beforeAll(async () => {
   gateway = await startService('api-gateway', {
     PROJECT_SERVICE_URL: projectService.url,
     REALTIME_SERVICE_URL: realtime.url,
+    CORS_ORIGINS: APP_ORIGIN,
   });
 }, 300_000);
 
@@ -99,7 +101,9 @@ async function login(name: string) {
 }
 
 function connect(token: string, projectId: string) {
-  const socket = new WebSocket(`${gateway.url.replace('http', 'ws')}/api/realtime`);
+  const socket = new WebSocket(`${gateway.url.replace('http', 'ws')}/api/realtime`, {
+    origin: APP_ORIGIN,
+  });
   const messages: RealtimeServerMessage[] = [];
   const closed = new Promise<number>((r) => socket.on('close', (code) => r(code)));
   socket.on('message', (d) =>
@@ -186,6 +190,23 @@ describe('realtime through the gateway (real processes)', () => {
     await new Promise((r) => setTimeout(r, 2_000));
     expect(eve.events()).toEqual([]);
     eve.socket.close();
+  });
+
+  it('the gateway refuses the WebSocket upgrade from a page on another origin', async () => {
+    // Browsers send Origin on WebSocket handshakes and CORS does not apply to them, so the
+    // gateway checks it itself (cross-site WebSocket hijacking).
+    const status = await new Promise<number>((resolve, reject) => {
+      const socket = new WebSocket(`${gateway.url.replace('http', 'ws')}/api/realtime`, {
+        origin: 'https://evil.example',
+      });
+      socket.on('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0));
+      socket.on('open', () => {
+        socket.close();
+        resolve(101);
+      });
+      socket.on('error', reject);
+    });
+    expect(status).toBe(403);
   });
 
   it('events missed while disconnected are recovered by refetching after reconnect', async () => {

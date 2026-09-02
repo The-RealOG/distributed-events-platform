@@ -71,6 +71,35 @@ const SHARED = 'packages/cache/src/shared-cache.ts';
 const INV_WORKER = 'apps/cache-invalidator/src/worker.ts';
 const TASK_SERVICE = 'apps/project-service/src/modules/tasks/service.ts';
 
+// Phase 8 (realtime; retries and the DLQ)
+const RT_APP = 'apps/realtime-service/src/app.ts';
+const RT_HUB = 'apps/realtime-service/src/hub.ts';
+const RT_WORKER = 'apps/realtime-service/src/worker.ts';
+const RT_INT = { cwd: 'apps/realtime-service', config: 'vitest.integration.config.ts', files: [] };
+const RT_UNIT = { cwd: 'apps/realtime-service', config: 'vitest.config.ts', files: [] };
+const WEB_RT = { cwd: 'apps/web', config: 'vite.config.ts', files: ['src/lib/realtime'] };
+const SYSTEM_RT = { ...SYS, files: ['integration/realtime-chain.int.test.ts'] };
+const WEB_CONN = 'apps/web/src/lib/realtime/connection.ts';
+const CONSUMER = 'packages/kafka/src/consumer.ts';
+const FAILURES = 'packages/kafka/src/failures.ts';
+const DLQ_INT = {
+  cwd: 'packages/kafka',
+  config: 'vitest.integration.config.ts',
+  files: ['test/dlq.int.test.ts'],
+};
+const KAFKA_UNIT = {
+  cwd: 'packages/kafka',
+  config: 'vitest.config.ts',
+  files: ['src/failures.test.ts'],
+};
+
+// Phase 9 (attachments)
+const ATT_SERVICE = 'apps/project-service/src/modules/attachments/service.ts';
+const STORAGE = 'packages/storage/src/object-storage.ts';
+const ATT_INT = { ...PS, files: ['test/attachments.int.test.ts'] };
+const STORAGE_INT = { cwd: 'packages/storage', config: 'vitest.integration.config.ts', files: [] };
+const STORAGE_UNIT = { cwd: 'packages/storage', config: 'vitest.config.ts', files: [] };
+
 export const mutations = [
   {
     id: 'p4-baseline',
@@ -726,5 +755,468 @@ export const mutations = [
       },
     ],
     tests: [SYSTEM_P67],
+  },
+  // ---------------------------------------------------------------- Phase 8: realtime
+  {
+    id: 'p8-baseline',
+    phase: 8,
+    title: 'no mutation: realtime, retry/DLQ and client reconnect suites pass',
+    edits: [],
+    tests: [RT_UNIT, RT_INT, WEB_RT, DLQ_INT, KAFKA_UNIT, SYSTEM_RT],
+    expect: 'pass',
+  },
+  {
+    id: 'p8-01-subscribe-without-membership',
+    phase: 8,
+    title: 'subscriptions are accepted for projects the user is not a member of',
+    edits: [
+      {
+        file: RT_APP,
+        find: "if (access !== 'allowed') {",
+        replace: "if (access === 'not_found') {",
+      },
+    ],
+    tests: [RT_INT, SYSTEM_RT],
+  },
+  {
+    id: 'p8-02-unauthenticated-subscribe',
+    phase: 8,
+    title: 'a connection that skips auth is treated as authenticated',
+    edits: [
+      {
+        file: RT_APP,
+        find: "if (message.type !== 'auth') return reject('missing');",
+        replace: "if (message.type !== 'auth') { client.userId = message.type; return; }",
+      },
+    ],
+    tests: [RT_INT],
+  },
+  {
+    id: 'p8-03-no-auth-timeout',
+    phase: 8,
+    title: 'a connection that never authenticates is kept open forever',
+    edits: [
+      {
+        file: RT_APP,
+        find: "socket.close(REALTIME_CLOSE.authTimeout, 'authenticate first');",
+        replace: 'void REALTIME_CLOSE.authTimeout;',
+      },
+    ],
+    tests: [RT_INT],
+  },
+  {
+    id: 'p8-04-broadcast-to-every-room',
+    phase: 8,
+    title: 'events are sent to every connected client, not the project room',
+    edits: [
+      {
+        file: RT_HUB,
+        find: 'const room = this.#rooms.get(envelope.projectId);',
+        replace: 'const room = new Set([...this.#clients].filter((c) => c.userId));',
+      },
+    ],
+    tests: [RT_UNIT, RT_INT],
+  },
+  {
+    id: 'p8-05-duplicates-forwarded',
+    phase: 8,
+    title: 'a redelivered event is broadcast again (no duplicate suppression)',
+    edits: [
+      {
+        file: RT_HUB,
+        find: 'if (this.#recentSet.has(envelope.eventId)) {',
+        replace: "if (this.#recentSet.has(envelope.eventId) && envelope.eventId === '') {",
+      },
+    ],
+    tests: [RT_UNIT, RT_INT],
+  },
+  {
+    id: 'p8-06-unbounded-send-buffer',
+    phase: 8,
+    title: 'slow clients are never disconnected (server memory grows without bound)',
+    edits: [
+      {
+        file: RT_HUB,
+        find: 'if (client.socket.bufferedAmount > this.#options.maxBufferedBytes) {',
+        replace: 'if (client.socket.bufferedAmount > Number.MAX_SAFE_INTEGER) {',
+      },
+    ],
+    tests: [RT_UNIT, RT_INT],
+  },
+  {
+    id: 'p8-07-rooms-leak-on-disconnect',
+    phase: 8,
+    title: 'a disconnected client stays in its rooms',
+    edits: [
+      {
+        file: RT_HUB,
+        find: '      room?.delete(client);\n      if (room?.size === 0) this.#rooms.delete(projectId);\n    }',
+        replace: '      void room;\n    }',
+      },
+    ],
+    tests: [RT_UNIT, RT_INT],
+  },
+  {
+    id: 'p8-08-dead-peers-never-terminated',
+    phase: 8,
+    title: 'the heartbeat never terminates a peer that stopped answering pings',
+    edits: [
+      {
+        file: RT_HUB,
+        find: 'if (!client.alive) {',
+        replace: 'if (!client.alive && !client.projects) {',
+      },
+    ],
+    tests: [RT_UNIT, RT_INT],
+  },
+  {
+    id: 'p8-09-replicas-share-a-group',
+    phase: 8,
+    title: 'all replicas join one consumer group (each sees only some partitions)',
+    edits: [
+      {
+        file: RT_WORKER,
+        find: 'groupId: `${CONSUMER_NAME}.${options.instanceId}`,',
+        replace: 'groupId: `${CONSUMER_NAME}.shared`,',
+      },
+    ],
+    tests: [{ ...RT_INT, name: 'different replicas' }],
+  },
+  {
+    id: 'p8-10-kafka-metadata-leaks',
+    phase: 8,
+    title: 'notifications carry Kafka partition/offset to browsers',
+    edits: [
+      {
+        file: RT_WORKER,
+        find: 'const envelope = toRealtimeEnvelope(event);',
+        replace:
+          'const envelope = { ...toRealtimeEnvelope(event), partition: metadata.partition, offset: metadata.offset };',
+      },
+    ],
+    tests: [RT_INT],
+  },
+  {
+    id: 'p8-11-shutdown-drops-clients',
+    phase: 8,
+    title: 'shutdown kills sockets instead of closing with "going away"',
+    edits: [
+      {
+        file: RT_HUB,
+        find: '      client.socket.close(code, reason);',
+        replace: '      void code;\n      void reason;\n      client.socket.terminate();',
+      },
+    ],
+    tests: [RT_INT],
+  },
+  {
+    id: 'p8-12-no-reconcile-after-reconnect',
+    phase: 8,
+    title: 'the browser does not refetch after (re)subscribing, so missed events stay missed',
+    edits: [{ file: WEB_CONN, find: '        this.#o.onResync();\n', replace: '' }],
+    tests: [WEB_RT],
+  },
+  {
+    id: 'p8-13-reconnect-without-jitter',
+    phase: 8,
+    title: 'every client reconnects after exactly the same delay (synchronized storm)',
+    edits: [
+      {
+        file: WEB_CONN,
+        find: 'return Math.round(ceiling / 2 + random() * (ceiling / 2));',
+        replace: 'return Math.round(ceiling + 0 * random());',
+      },
+    ],
+    tests: [WEB_RT],
+  },
+  {
+    id: 'p8-14-gateway-accepts-any-origin',
+    phase: 8,
+    title: 'the gateway relays WebSocket upgrades from any page origin',
+    edits: [
+      {
+        file: 'apps/api-gateway/src/realtime-proxy.ts',
+        find: 'if (origin && options.allowedOrigins.length > 0 && !options.allowedOrigins.includes(origin)) {',
+        replace: 'if (origin && options.allowedOrigins.length > 0 && origin.length === 0) {',
+      },
+    ],
+    tests: [{ ...SYSTEM_RT, name: 'another origin' }],
+  },
+  // ---------------------------------------------------------------- Phase 8: retries and the DLQ
+  {
+    id: 'p8-d01-no-retry-before-dlq',
+    phase: 8,
+    title: 'a failing event is dead-lettered on the first attempt',
+    edits: [
+      {
+        file: CONSUMER,
+        find: "kind === 'permanent' ? this.#retry.permanentAttempts : this.#retry.transientAttempts;",
+        replace: "kind === 'permanent' ? 1 : this.#retry.transientAttempts;",
+      },
+    ],
+    tests: [DLQ_INT],
+  },
+  {
+    id: 'p8-d02-unbounded-poison-retries',
+    phase: 8,
+    title: 'a poison event is retried forever and blocks its partition',
+    edits: [
+      {
+        file: CONSUMER,
+        find: "kind === 'permanent' ? this.#retry.permanentAttempts : this.#retry.transientAttempts;",
+        replace: "kind === 'permanent' ? Number.MAX_SAFE_INTEGER : this.#retry.transientAttempts;",
+      },
+    ],
+    tests: [{ ...DLQ_INT, name: 'poison event is tried' }],
+  },
+  {
+    id: 'p8-d03-ack-despite-dlq-failure',
+    phase: 8,
+    title: 'the source offset is committed although the DLQ write failed (event lost)',
+    edits: [
+      {
+        file: CONSUMER,
+        find: "'dead-letter write failed; message left unacknowledged for redelivery',\n      );\n      throw err;",
+        replace:
+          "'dead-letter write failed; message left unacknowledged for redelivery',\n      );\n      return;",
+      },
+    ],
+    tests: [{ ...DLQ_INT, name: 'DLQ cannot be written' }],
+  },
+  {
+    id: 'p8-d04-outage-classified-as-poison',
+    phase: 8,
+    title: 'dependency outages are classified permanent (the stream drains into the DLQ)',
+    edits: [
+      {
+        file: FAILURES,
+        find: "  if (TRANSIENT_CODES.has(code)) return 'transient';",
+        replace: "  if (TRANSIENT_CODES.has(code)) return 'permanent';",
+      },
+    ],
+    tests: [KAFKA_UNIT, DLQ_INT],
+  },
+  {
+    id: 'p8-d05-wrapped-driver-error',
+    phase: 8,
+    title:
+      'classification ignores the wrapped driver error (the real SQLSTATE; leaks query params)',
+    edits: [
+      {
+        file: FAILURES,
+        find: '    if (cause === undefined || cause === null || cause === current) break;',
+        replace: '    if (cause !== null || cause === current) break;',
+      },
+    ],
+    tests: [KAFKA_UNIT],
+  },
+  {
+    id: 'p8-d06-dlq-error-unsanitized',
+    phase: 8,
+    title: 'DLQ records and logs keep credentials from error messages',
+    edits: [
+      {
+        file: FAILURES,
+        find: '  for (const [pattern, replacement] of REDACTIONS) text = text.replace(pattern, replacement);',
+        replace: '  void REDACTIONS;',
+      },
+    ],
+    tests: [KAFKA_UNIT, { ...DLQ_INT, name: 'poison event is tried' }],
+  },
+  {
+    id: 'p8-d07-malformed-silently-dropped',
+    phase: 8,
+    title: 'undecodable messages are skipped without a DLQ record',
+    edits: [
+      {
+        file: CONSUMER,
+        find: '      if (this.#dlqProducer) {\n        await this.#deadLetter(',
+        replace:
+          '      if (this.#dlqProducer && message.value === null) {\n        await this.#deadLetter(',
+      },
+    ],
+    tests: [{ ...DLQ_INT, name: 'malformed input' }],
+  },
+  {
+    id: 'p8-d08-replay-changes-identity',
+    phase: 8,
+    title: 'replay republishes under a new eventId (idempotent consumers apply it twice)',
+    edits: [
+      {
+        file: 'packages/kafka/src/dlq.ts',
+        find: '      const message = encodeDomainEvent(parsed.data);',
+        replace:
+          '      const message = encodeDomainEvent({ ...parsed.data, eventId: crypto.randomUUID() });',
+      },
+    ],
+    tests: [{ ...DLQ_INT, name: 'replay republishes' }],
+  },
+  // ---------------------------------------------------------------- Phase 9: attachments
+  {
+    id: 'p9-baseline',
+    phase: 9,
+    title: 'no mutation: attachment and object-storage suites pass',
+    edits: [],
+    tests: [ATT_INT, STORAGE_INT, STORAGE_UNIT],
+    expect: 'pass',
+  },
+  {
+    id: 'p9-01-download-without-authorization',
+    phase: 9,
+    title: 'attachments are served (and deleted) without checking the task access',
+    edits: [
+      {
+        file: ATT_SERVICE,
+        find: '    await requireTaskRole(this.db, principal.userId, row.taskId, role);\n    return row;',
+        replace: '    void role;\n    return row;',
+      },
+    ],
+    tests: [{ ...ATT_INT, name: 'authorization happens' }],
+  },
+  {
+    id: 'p9-02-any-content-type',
+    phase: 9,
+    title: 'the content-type allowlist is not enforced (text/html accepted)',
+    edits: [
+      {
+        file: ATT_SERVICE,
+        find: '    if (!isAllowedContentType(input.contentType)) {',
+        replace: "    if (!isAllowedContentType(input.contentType) && input.contentType === '') {",
+      },
+    ],
+    tests: [{ ...ATT_INT, name: 'enforces size and type' }],
+  },
+  {
+    id: 'p9-03-no-declared-size-limit',
+    phase: 9,
+    title: 'over-limit uploads are signed',
+    edits: [
+      {
+        file: ATT_SERVICE,
+        find: '    if (input.sizeBytes > this.limits.maxBytes) {',
+        replace: '    if (input.sizeBytes > Number.MAX_SAFE_INTEGER) {',
+      },
+    ],
+    tests: [{ ...ATT_INT, name: 'enforces size and type' }],
+  },
+  {
+    id: 'p9-04-signed-policy-without-size-bound',
+    phase: 9,
+    title: 'the presigned POST does not bind the body size',
+    edits: [
+      {
+        file: STORAGE,
+        find: "        ['content-length-range', 1, input.maxBytes],",
+        replace: "        ['content-length-range', 1, input.maxBytes * 1_000_000],",
+      },
+    ],
+    tests: [STORAGE_INT, { ...ATT_INT, name: 'enforces size and type' }],
+  },
+  {
+    id: 'p9-05-signed-policy-without-content-type',
+    phase: 9,
+    title: 'the presigned POST lets the browser choose the stored content type',
+    edits: [
+      {
+        file: STORAGE,
+        find: "        ['eq', '$Content-Type', input.contentType],",
+        replace: "        ['starts-with', '$Content-Type', ''],",
+      },
+    ],
+    tests: [STORAGE_INT],
+  },
+  {
+    id: 'p9-06-user-controlled-object-key',
+    phase: 9,
+    title: 'the object key is built from the user-supplied file name',
+    edits: [
+      {
+        file: ATT_SERVICE,
+        find: '    const key = objectKey({ workspaceId, projectId: task.projectId, taskId, attachmentId: id });',
+        replace:
+          '    const key = `uploads/${input.filename}`;\n    void objectKey;\n    void workspaceId;',
+      },
+    ],
+    tests: [{ ...ATT_INT, name: 'upload → finalize' }],
+  },
+  {
+    id: 'p9-07-finalize-trusts-browser',
+    phase: 9,
+    title: 'finalization marks ready without checking the stored object (HEAD)',
+    edits: [
+      {
+        file: ATT_SERVICE,
+        find: '      head = await this.storage.head(row.objectKey);',
+        replace: '      head = { sizeBytes: row.sizeBytes, contentType: row.contentType };',
+      },
+    ],
+    tests: [{ ...ATT_INT, name: 'never happened' }],
+  },
+  {
+    id: 'p9-08-oversized-object-accepted',
+    phase: 9,
+    title: 'a stored object larger than declared is accepted',
+    edits: [
+      {
+        file: ATT_SERVICE,
+        find: '    if (head.sizeBytes <= 0 || head.sizeBytes > Math.min(row.sizeBytes, this.limits.maxBytes)) {',
+        replace: '    if (head.sizeBytes <= 0) {',
+      },
+    ],
+    tests: [{ ...ATT_INT, name: 'larger than declared' }],
+  },
+  {
+    id: 'p9-09-sweep-forgets-failed-deletes',
+    phase: 9,
+    title: 'the sweep never retries object deletes that failed (orphans stay forever)',
+    edits: [
+      {
+        file: ATT_SERVICE,
+        find: "         OR (status = 'deleted' AND object_deleted_at IS NULL)",
+        replace: '         OR false',
+      },
+    ],
+    tests: [{ ...ATT_INT, name: 'sweep' }],
+  },
+  {
+    id: 'p9-10-storage-failure-is-500',
+    phase: 9,
+    title: 'a storage outage surfaces as an unhandled error instead of 503',
+    edits: [
+      {
+        file: ATT_SERVICE,
+        find: '      if (err instanceof StorageUnavailableError) throw storageDown();\n      throw err;',
+        replace: '      void StorageUnavailableError;\n      throw err;',
+      },
+    ],
+    tests: [{ ...ATT_INT, name: 'storage outage' }],
+  },
+  {
+    id: 'p9-11-no-storage-timeouts',
+    phase: 9,
+    title: 'S3 calls have no timeout or retry bound (an outage hangs requests)',
+    edits: [
+      {
+        file: STORAGE,
+        find: '      maxAttempts: 2,\n      requestHandler: {\n        requestTimeout: options.requestTimeoutMs ?? 3_000,\n        connectionTimeout: 2_000,\n      },',
+        replace:
+          '      maxAttempts: 10,\n      retryMode: "adaptive",\n      requestHandler: {\n        requestTimeout: 120_000,\n        connectionTimeout: 60_000,\n      },',
+      },
+    ],
+    tests: [STORAGE_INT, { ...ATT_INT, name: 'storage outage' }],
+  },
+  {
+    id: 'p9-12-download-rendered-inline',
+    phase: 9,
+    title: 'downloads are served inline (an uploaded file could render in the browser)',
+    edits: [
+      {
+        file: STORAGE,
+        find: '  return `attachment; filename="${ascii}"; filename*=UTF-8\'\'${encodeURIComponent(filename)}`;',
+        replace:
+          '  return `inline; filename="${ascii}"; filename*=UTF-8\'\'${encodeURIComponent(filename)}`;',
+      },
+    ],
+    tests: [STORAGE_UNIT, { ...ATT_INT, name: 'upload → finalize' }],
   },
 ];
