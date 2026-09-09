@@ -976,12 +976,24 @@ export const mutations = [
     edits: [
       {
         file: CONSUMER,
-        find: "'dead-letter write failed; message left unacknowledged for redelivery',\n      );\n      throw err;",
-        replace:
-          "'dead-letter write failed; message left unacknowledged for redelivery',\n      );\n      return;",
+        find: '      throw new RedeliverError(`dead-letter write failed: ${sanitizeError(err)}`);',
+        replace: '      return;',
       },
     ],
     tests: [{ ...DLQ_INT, name: 'DLQ cannot be written' }],
+  },
+  {
+    id: 'p8-d09-dlq-failure-crashes-consumer',
+    phase: 8,
+    title: 'a failed DLQ write is rethrown as-is (non-retriable errors stop the consumer for good)',
+    edits: [
+      {
+        file: CONSUMER,
+        find: '      throw new RedeliverError(`dead-letter write failed: ${sanitizeError(err)}`);',
+        replace: '      void RedeliverError;\n      throw err;',
+      },
+    ],
+    tests: [{ ...DLQ_INT, name: 'NON-retriable DLQ failure' }],
   },
   {
     id: 'p8-d04-outage-classified-as-poison',

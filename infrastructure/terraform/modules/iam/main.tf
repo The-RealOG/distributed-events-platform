@@ -134,6 +134,26 @@ resource "aws_iam_role_policy" "msk_consumer" {
   policy   = data.aws_iam_policy_document.msk_consumer[each.key].json
 }
 
+# Consumers that dead-letter (ADR-019) may write to the DLQ topic, and only to it. Without this,
+# every DLQ write on MSK fails with TOPIC_AUTHORIZATION_FAILED (found in the Phase-9 AWS demo).
+locals {
+  dlq_writers = ["activity-service"]
+}
+
+data "aws_iam_policy_document" "msk_dead_letter" {
+  statement {
+    actions   = ["kafka-cluster:DescribeTopic", "kafka-cluster:WriteData"]
+    resources = ["${replace(var.msk_cluster_arn, ":cluster/", ":topic/")}/domain.events.dlq"]
+  }
+}
+
+resource "aws_iam_role_policy" "msk_dead_letter" {
+  for_each = toset(local.dlq_writers)
+  name     = "msk-dead-letter"
+  role     = aws_iam_role.task[each.key].id
+  policy   = data.aws_iam_policy_document.msk_dead_letter.json
+}
+
 resource "aws_iam_role_policy" "msk_publisher" {
   name   = "msk-produce"
   role   = aws_iam_role.task["outbox-publisher"].id

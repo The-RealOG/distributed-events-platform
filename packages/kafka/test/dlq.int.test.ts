@@ -177,6 +177,32 @@ describe('bounded retries and dead-lettering (real broker)', () => {
     await healthy.stop();
   });
 
+  it('a NON-retriable DLQ failure (like MSK authorization) does not stop the consumer: the event keeps being redelivered', async () => {
+    // Found on AWS: without DLQ write permission, KafkaJS got a non-retriable error from the
+    // handler path, crashed the consumer for good, and the process stayed up (silently dead).
+    const t = await setup();
+    let calls = 0;
+    const consumer = await t.start(
+      async () => {
+        calls++;
+        throw new PermanentEventError('poison');
+      },
+      { deadLetter: { topic: 'not a valid topic name!' } },
+    );
+    await t.publish(sampleEvent(randomUUID()));
+    await waitFor(() => calls >= 2 * fast.permanentAttempts, {
+      timeoutMs: 90_000,
+      description: 'redelivered after the failed dead-letter write',
+    });
+    expect(consumer.crashed).toBe(false);
+    expect(
+      t.lines.some(
+        (l) => l['msg'] === 'dead-letter write failed; message left unacknowledged for redelivery',
+      ),
+    ).toBe(true);
+    await consumer.stop();
+  });
+
   it('stopping during retries hands the event back unacknowledged (restart processes it)', async () => {
     const t = await setup();
     const event = sampleEvent(randomUUID());

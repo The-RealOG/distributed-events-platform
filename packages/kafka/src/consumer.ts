@@ -85,16 +85,30 @@ export interface DomainEventConsumerOptions {
  * message: processing is at-least-once and duplicates are expected (idempotency is Phase 5).
  *
  * Malformed messages (bad JSON, bad envelope, unsupported schemaVersion, unknown type, bad
- * payload) are logged with their coordinates and skipped. Their offset is committed, so one
- * bad message cannot block its partition or loop forever. They are not yet copied to the
- * DLQ (Phase 9).
+ * payload) never block their partition: with a DLQ they are dead-lettered, without one they are
+ * logged with their coordinates and skipped.
  *
- * Handler failures are different: the error is logged and rethrown, the offset is not
- * committed, and KafkaJS retries the message (and, when its retries are exhausted, restarts the
- * consumer from the last committed offset). Handlers with side effects wrap them with
- * createIdempotentHandler (@dpp/database, ADR-013) so these redeliveries are harmless. Bounded
- * retries plus a DLQ for poison messages arrive in Phase 9.
+ * Handler failures (ADR-019): bounded in-process retries; then poison events go to the DLQ and
+ * are acknowledged, while transient failures (and failed DLQ writes) are handed back to KafkaJS
+ * unacknowledged, always as a RETRIABLE error, so KafkaJS redelivers from the last committed
+ * offset and, when its own retries run out, restarts the consumer. (A non-retriable error, e.g.
+ * an MSK authorization failure surfacing from the DLQ producer, would otherwise stop the
+ * consumer for good while the process stayed up.) Handlers with side effects wrap them with
+ * createIdempotentHandler (@dpp/database, ADR-013) so redeliveries are harmless.
  */
+/**
+ * What the consumer throws to KafkaJS when a message must be redelivered. Always retriable (see
+ * the class comment); the original error is logged, not attached, because KafkaJS decides
+ * whether to restart from the innermost `cause`.
+ */
+export class RedeliverError extends Error {
+  readonly retriable = true;
+  constructor(message: string) {
+    super(message);
+    this.name = 'RedeliverError';
+  }
+}
+
 export class DomainEventConsumer {
   readonly #consumer: Consumer;
   readonly #logger: Logger;
@@ -140,6 +154,11 @@ export class DomainEventConsumer {
       this.#logger.info({ assignment: this.#assigned }, 'joined consumer group');
       this.#joinWaiters.splice(0).forEach((resolve) => resolve());
     });
+  }
+
+  /** Crashed and KafkaJS will not restart it: the process should be replaced (liveness). */
+  get crashed(): boolean {
+    return this.#crashed;
   }
 
   /**
@@ -284,7 +303,7 @@ export class DomainEventConsumer {
             { error, kind, attempts: attempt },
             'event handler failed; message will be redelivered',
           );
-          throw err;
+          throw new RedeliverError(`handler failed (${kind}): ${error}`);
         }
         const delayMs = retryDelayMs(attempt, this.#retry);
         log.warn({ error, kind, attempt, delayMs }, 'event handler failed; retrying');
@@ -318,7 +337,7 @@ export class DomainEventConsumer {
         { ...where, error: sanitizeError(err) },
         'dead-letter write failed; message left unacknowledged for redelivery',
       );
-      throw err;
+      throw new RedeliverError(`dead-letter write failed: ${sanitizeError(err)}`);
     }
     this.#options.hooks?.onDeadLetter?.(record.category);
     this.#logger.warn(

@@ -46,7 +46,9 @@
     "aws:destroy": "scripts/aws/destroy.sh",
     "aws:destroy:all": "scripts/aws/destroy-all.sh",
     "aws:audit": "scripts/aws/audit.sh",
-    "aws:demo": "scripts/aws/demo.sh"
+    "aws:demo": "scripts/aws/demo.sh",
+    "aws:demo:realtime": "scripts/aws/demo-realtime.sh",
+    "aws:demo:dlq": "scripts/aws/demo-dlq.sh"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

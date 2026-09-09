@@ -13,6 +13,7 @@ export {
 } from './config.js';
 export {
   DomainEventConsumer,
+  RedeliverError,
   type ConsumerHooks,
   type DomainEventConsumerOptions,
   type EventHandler,

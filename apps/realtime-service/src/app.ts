@@ -96,7 +96,10 @@ export async function buildApp(deps: RealtimeDeps): Promise<FastifyInstance> {
     });
   }
 
-  app.get('/health', () => ({ status: 'ok' }));
+  // Liveness: a consumer KafkaJS gave up on never comes back by itself; let ECS replace the task.
+  app.get('/health', (_request, reply) =>
+    consumer.crashed ? reply.code(503).send({ status: 'consumer_crashed' }) : { status: 'ok' },
+  );
   app.get('/ready', async (_request, reply) => {
     const databaseOk = await database.ping().then(
       () => true,

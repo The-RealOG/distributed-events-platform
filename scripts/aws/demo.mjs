@@ -26,7 +26,7 @@ async function call(method, path, { token, body, correlationId } = {}) {
   const res = await fetch(`${api}${path}`, {
     method,
     headers: {
-      'content-type': 'application/json',
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...(correlationId ? { 'x-correlation-id': correlationId } : {}),
     },
