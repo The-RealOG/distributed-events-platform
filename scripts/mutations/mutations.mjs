@@ -773,7 +773,7 @@ export const mutations = [
       {
         file: RT_APP,
         find: "if (access !== 'allowed') {",
-        replace: "if (access === 'not_found') {",
+        replace: "if ((access as string) === 'not_found') {",
       },
     ],
     tests: [RT_INT, SYSTEM_RT],
@@ -1135,7 +1135,7 @@ export const mutations = [
         replace: "        ['starts-with', '$Content-Type', ''],",
       },
     ],
-    tests: [STORAGE_INT],
+    tests: [STORAGE_UNIT, STORAGE_INT],
   },
   {
     id: 'p9-06-user-controlled-object-key',
@@ -1201,7 +1201,7 @@ export const mutations = [
         replace: '      void StorageUnavailableError;\n      throw err;',
       },
     ],
-    tests: [{ ...ATT_INT, name: 'storage outage' }],
+    tests: [{ ...ATT_INT, name: 'not connection failures' }],
   },
   {
     id: 'p9-11-no-storage-timeouts',

@@ -297,6 +297,17 @@ await demo(
       f.append('file', new Blob(['much more than three bytes']));
       return (await fetch(r.body.upload.url, { method: 'POST', body: f })).status;
     })();
+    const wrongType = await (async () => {
+      const r = await call('POST', `/tasks/${task.body.id}/attachments`, {
+        token: p.a.token,
+        body: { filename: 'x.txt', contentType: 'text/plain', sizeBytes: 5 },
+      });
+      const f = new FormData();
+      for (const [k, v] of Object.entries(r.body.upload.fields)) f.append(k, v);
+      f.set('Content-Type', 'text/html'); // the browser tries to change the stored type
+      f.append('file', new Blob(['<b>x']));
+      return (await fetch(r.body.upload.url, { method: 'POST', body: f })).status;
+    })();
     const anonymous = (await fetch(`https://${s3Host}/${req.body.upload.fields.key}`)).status;
     record(
       'attachments: direct S3 upload (CORS), HEAD-verified finalize, authorized download',
@@ -309,8 +320,9 @@ await demo(
         /attachment/.test(file.headers.get('content-disposition') ?? '') &&
         denied.status === 403 &&
         tooBig === 400 &&
+        wrongType === 403 &&
         anonymous === 403,
-      `upload to ${s3Host} (not the API); control plane ${Math.round(tSigned - t0)} ms, S3 transfer ${Math.round(tUploaded - tSigned)} ms; CORS allows ${preflight.headers.get('access-control-allow-origin')}; outsider → ${denied.status}; oversize body → S3 ${tooBig}; unsigned GET → ${anonymous}`,
+      `upload to ${s3Host} (not the API); control plane ${Math.round(tSigned - t0)} ms, S3 transfer ${Math.round(tUploaded - tSigned)} ms; CORS allows ${preflight.headers.get('access-control-allow-origin')}; outsider → ${denied.status}; oversize body → S3 ${tooBig}; changed Content-Type → S3 ${wrongType}; unsigned GET → ${anonymous}`,
     );
   },
 );

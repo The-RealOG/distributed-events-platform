@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { CreateBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { createDatabase, type DatabaseHandle } from '@dpp/database';
-import { S3ObjectStorage } from '@dpp/storage';
+import { S3ObjectStorage, StorageUnavailableError, type ObjectStorage } from '@dpp/storage';
 import { startS3, type StartedS3 } from '@dpp/test-utils';
 import { pino } from 'pino';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
@@ -21,6 +21,7 @@ import {
 let s3: StartedS3;
 let h: Harness;
 let down: Harness;
+let throttled: Harness;
 let service: AttachmentService;
 let serviceDb: DatabaseHandle;
 const bucket = 'attachments-it';
@@ -69,10 +70,22 @@ beforeAll(async () => {
   down = await createHarness(undefined, {
     attachments: new AttachmentService(serviceDb.db, unreachable, limits, logger),
   });
+  // Reachable but failing (throttling, 5xx, access denied): no connection error in the chain.
+  const failing = new Error('SlowDown: Please reduce your request rate.');
+  const refusing: ObjectStorage = {
+    createUpload: (input) => storage.createUpload(input),
+    createDownloadUrl: (input) => storage.createDownloadUrl(input),
+    head: () => Promise.reject(new StorageUnavailableError(failing)),
+    delete: () => Promise.reject(new StorageUnavailableError(failing)),
+  };
+  throttled = await createHarness(undefined, {
+    attachments: new AttachmentService(serviceDb.db, refusing, limits, logger),
+  });
 });
 afterAll(async () => {
   await h?.close();
   await down?.close();
+  await throttled?.close();
   await serviceDb?.close();
   await s3?.stop();
 });
@@ -278,6 +291,21 @@ describe('attachments', () => {
     expect(rows.rows.every((r) => r.status === 'deleted' && r.object_deleted_at !== null)).toBe(
       true,
     );
+  });
+
+  it('storage errors that are not connection failures (throttling, 5xx) are also 503, not 500', async () => {
+    const f = await createProjectFixture(throttled);
+    const task = await createTask(throttled, f, 'Throttled');
+    const req = await throttled.call('POST', `/tasks/${task.id}/attachments`, {
+      as: f.owner,
+      body: { filename: 'x.txt', contentType: 'text/plain', sizeBytes: 1 },
+    });
+    expect(req.status).toBe(201);
+    const done = await throttled.call('POST', `/attachments/${req.body.attachment.id}/complete`, {
+      as: f.owner,
+    });
+    expect(done.status).toBe(503);
+    expect(done.body.error.code).toBe('DEPENDENCY_UNAVAILABLE');
   });
 
   it('storage outage: attachment requests fail fast with 503; task CRUD is unaffected', async () => {
