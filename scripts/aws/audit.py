@@ -247,7 +247,10 @@ check(len([s_ for s_ in mine_s if s_["Name"].startswith(P)]) == 2 and any(s_.get
 # ---- CloudWatch Logs
 lgs = aws("logs", "describe-log-groups", "--log-group-name-prefix", f"/ecs/{P}/")["logGroups"]
 inv["log_groups"] = [{"name": g["logGroupName"], "retention_days": g.get("retentionInDays"), "stored_bytes": g.get("storedBytes", 0)} for g in lgs]
-check(len(lgs) == 7 and all(g.get("retentionInDays") == 7 for g in lgs), f"{len(lgs)} ECS log groups, all with 7-day retention")
+# One per service/job: 6 long-running services + migrate + kafka-tools.
+expected_groups = {f"/ecs/{P}/{n}" for n in ["api-gateway", "project-service", "outbox-publisher", "activity-service",
+                                             "cache-invalidator", "realtime-service", "migrate", "kafka-tools"]}
+check({g["logGroupName"] for g in lgs} == expected_groups and all(g.get("retentionInDays") == 7 for g in lgs), f"{len(lgs)} ECS log groups, all with 7-day retention")
 
 # ---- ElastiCache (Valkey)
 groups = aws("elasticache", "describe-replication-groups", default={"ReplicationGroups": []})["ReplicationGroups"]

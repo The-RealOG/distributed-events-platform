@@ -65,3 +65,9 @@ variable "enable_redis" {
   default     = true
   description = "ElastiCache Valkey (cache.t4g.micro) for the Phase 7 board cache; false removes it"
 }
+
+variable "board_cache_enabled" {
+  description = "Serve board reads from the shared cache (ADR-015). false = every read goes to PostgreSQL; used for the Phase-10 cache on/off experiment. Redis and the invalidator stay up either way."
+  type        = bool
+  default     = true
+}

@@ -1,0 +1,68 @@
+name: Load test (AWS dev)
+
+# Manual only. Runs k6 on a GitHub-hosted runner (the load generator; not the developer laptop)
+# against the deployed app URL, which it reads from the deploy config in SSM via OIDC (no URL or
+# credentials in the repository). Raw k6 summaries are uploaded as an artifact.
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: 'tests/load script: http | realtime'
+        default: http
+      scenario:
+        description: 'SCENARIO for http.js: read-heavy | balanced | write-heavy | hot-project | multi-project'
+        default: balanced
+      label:
+        description: 'Result label (artifact name)'
+        required: true
+      env:
+        description: 'Extra k6 -e settings, space separated (e.g. "VUS=100 DURATION=5m THINK_MS=500")'
+        default: ''
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: load-dev
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-2
+
+jobs:
+  k6:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: App URL from the deploy config
+        run: |
+          url=$(aws ssm get-parameter --name /dpp-dev/deploy-config --query Parameter.Value --output text | jq -r .app_url)
+          echo "BASE_URL=$url" >> "$GITHUB_ENV"
+      - uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: '1.3.0'
+      - name: Run
+        env:
+          SCRIPT: ${{ inputs.script }}
+          SCENARIO: ${{ inputs.scenario }}
+          LABEL: ${{ inputs.label }}
+          EXTRA: ${{ inputs.env }}
+        run: |
+          mkdir -p out
+          args=()
+          for kv in $EXTRA; do args+=(-e "$kv"); done
+          echo "runner: $(nproc) vCPU, $(free -g | awk '/Mem:/{print $2}') GiB; $(date -u +%FT%TZ)" | tee out/runner.txt
+          k6 run --quiet -e BASE_URL="$BASE_URL" -e SCENARIO="$SCENARIO" -e RUN_ID="$LABEL" \
+            -e SUMMARY_FILE=out/summary.json "${args[@]}" "tests/load/${SCRIPT}.js" 2>&1 | tee out/stdout.txt
+          echo "exit=${PIPESTATUS[0]}" | tee -a out/runner.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ inputs.label }}
+          path: out/

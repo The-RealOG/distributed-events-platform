@@ -39,7 +39,7 @@ module "project_service" {
     AUTH_DEV_LOGIN_ENABLED = "true"
     }, var.enable_redis ? {
     # Board cache (ADR-015); TLS in transit, reachable only from these tasks' security groups.
-    CACHE_ENABLED     = "true"
+    CACHE_ENABLED     = tostring(var.board_cache_enabled)
     REDIS_URL         = "rediss://${module.redis.endpoint}:6379"
     CACHE_TTL_SECONDS = "300"
     } : {}, {

@@ -3,7 +3,11 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', '**/.turbo/**', '**/coverage/**'] },
+  {
+    ignores: ['**/dist/**', '**/node_modules/**', '**/.turbo/**', '**/coverage/**'],
+  },
+  // k6 scripts run in k6's own JS runtime (__ENV, k6/* modules), not Node; k6 inspect validates them.
+  { ignores: ['tests/load/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
