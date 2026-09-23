@@ -35,20 +35,59 @@ for (const op of OPS) thresholds[`http_req_duration{op:${op}}`] = ['p(95)<1000']
 for (const result of ['hit', 'miss', 'refresh', 'none'])
   thresholds[`board_cache{result:${result}}`] = ['count>=0'];
 
+// LADDER="10,50,100" runs one constant-VU step per level, back to back (STEP each), in one run
+// with one seeded tenant; every sample is tagged level=<VUs>. Without LADDER: one ramped level.
+const LADDER = (__ENV.LADDER || '')
+  .split(',')
+  .filter(Boolean)
+  .map((v) => parseInt(v, 10));
+const STEP = __ENV.STEP || '3m';
+const stepSeconds = (() => {
+  const m = /^(\d+)(s|m)$/.exec(STEP);
+  return m ? parseInt(m[1], 10) * (m[2] === 'm' ? 60 : 1) : 180;
+})();
+function scenarios() {
+  if (LADDER.length === 0) {
+    return {
+      [SCENARIO]: {
+        executor: 'ramping-vus',
+        startVUs: 0,
+        stages: [
+          { duration: RAMP, target: VUS },
+          { duration: DURATION, target: VUS },
+          { duration: '10s', target: 0 },
+        ],
+        gracefulRampDown: '10s',
+        tags: { kind: 'api', level: String(VUS) },
+      },
+    };
+  }
+  const out = {};
+  LADDER.forEach((vus, i) => {
+    out[`L${vus}`] = {
+      executor: 'constant-vus',
+      vus,
+      duration: STEP,
+      startTime: `${i * (stepSeconds + 5)}s`,
+      gracefulStop: '5s',
+      tags: { kind: 'api', level: String(vus) },
+    };
+    thresholds[`http_req_duration{level:${vus}}`] = ['p(95)<500', 'p(99)<1500'];
+    thresholds[`http_req_failed{level:${vus}}`] = ['rate<0.01'];
+    thresholds[`http_reqs{level:${vus}}`] = ['count>=0'];
+    thresholds[`writes_ok{level:${vus}}`] = ['count>=0'];
+    thresholds[`version_conflicts{level:${vus}}`] = ['count>=0'];
+    thresholds[`http_req_duration{level:${vus},op:board}`] = ['p(95)<1000'];
+    thresholds[`http_req_duration{level:${vus},op:create}`] = ['p(95)<1000'];
+    thresholds[`http_req_duration{level:${vus},op:move}`] = ['p(95)<1000'];
+    for (const result of ['hit', 'miss'])
+      thresholds[`board_cache{level:${vus},result:${result}}`] = ['count>=0'];
+  });
+  return out;
+}
+
 export const options = {
-  scenarios: {
-    [SCENARIO]: {
-      executor: 'ramping-vus',
-      startVUs: 0,
-      stages: [
-        { duration: RAMP, target: VUS },
-        { duration: DURATION, target: VUS },
-        { duration: '10s', target: 0 },
-      ],
-      gracefulRampDown: '10s',
-      tags: { kind: 'api' },
-    },
-  },
+  scenarios: scenarios(),
   setupTimeout: '15m',
   thresholds,
   summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'max', 'count'],

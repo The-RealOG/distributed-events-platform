@@ -10,12 +10,31 @@ dir="$REPO_ROOT/tests/load/results/$label"
 mkdir -p "$dir"
 "$(dirname "$0")/snapshot.sh" "$dir/before"
 start="$(date -u +%FT%TZ)"
+# Time series during the run (gauges are only meaningful over time): outbox backlog and the
+# Project Service DB pool, sampled from inside the tasks every ~20 s.
+(
+  cluster="$(cfg 'c["cluster"]')"
+  while :; do
+    for pair in outbox-publisher:3002 project-service:3001; do
+      svc="${pair%%:*}"; port="${pair##*:}"
+      task="$(aws ecs list-tasks --cluster "$cluster" --service-name "$svc" --desired-status RUNNING --query 'taskArns[0]' --output text)"
+      aws ecs execute-command --cluster "$cluster" --task "$task" --container "$svc" --interactive \
+        --command "wget -qO- http://127.0.0.1:${port}/metrics" 2>/dev/null |
+        grep -E '^(outbox_pending_events|outbox_oldest_pending_age_seconds|outbox_published_total|db_pool_waiting_requests|db_pool_connections)' |
+        sed "s/^/$(date -u +%T) $svc /" >>"$dir/timeline.txt"
+    done
+    sleep 15
+  done
+) &
+poller=$!
+trap 'kill $poller 2>/dev/null' EXIT
 gh workflow run load.yml --ref main -f script="$script" -f scenario="$scenario" -f label="$label" -f env="$extra" >/dev/null
 sleep 8
 run="$(gh run list --workflow load.yml -L 1 --json databaseId -q '.[0].databaseId')"
 info "k6 run $run ($label): $script $scenario $extra"
 gh run watch "$run" --interval 20 >/dev/null 2>&1 || true
 end="$(date -u +%FT%TZ)"
+kill "$poller" 2>/dev/null || true
 echo "$start $end" >"$dir/window.txt"
 gh run download "$run" -n "$label" -D "$dir" || warn "no artifact"
 "$(dirname "$0")/snapshot.sh" "$dir/after"

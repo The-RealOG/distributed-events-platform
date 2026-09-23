@@ -34,6 +34,42 @@ export function handleSummary(data) {
     lines.push(
       `board cache (client view, x-board-cache) hit ${hits} / miss ${misses} = ${((100 * hits) / (hits + misses)).toFixed(1)} % hits`,
     );
+  // Ladder: one row per level (percentiles over that level's samples only).
+  const levels = Object.keys(m)
+    .map((k) => /^http_req_duration\{level:(\d+)\}$/.exec(k))
+    .filter(Boolean)
+    .map((x) => parseInt(x[1], 10))
+    .sort((a, b) => a - b);
+  if (levels.length > 1) {
+    const sm = /^(\d+)(s|m)$/.exec(__ENV.STEP || '3m');
+    const step = sm ? parseInt(sm[1], 10) * (sm[2] === 'm' ? 60 : 1) : 0;
+    lines.push(
+      '',
+      'level  req/s   writes/s  err%    p50    p95    p99   board p95  create p95  move p95  cache hit%  409s',
+    );
+    for (const l of levels) {
+      const d = m[`http_req_duration{level:${l}}`].values;
+      const n = m[`http_reqs{level:${l}}`] ? m[`http_reqs{level:${l}}`].values.count : 0;
+      const w = m[`writes_ok{level:${l}}`] ? m[`writes_ok{level:${l}}`].values.count : 0;
+      const e = m[`http_req_failed{level:${l}}`] ? m[`http_req_failed{level:${l}}`].values.rate : 0;
+      const p = (op) =>
+        m[`http_req_duration{level:${l},op:${op}}`]
+          ? m[`http_req_duration{level:${l},op:${op}}`].values['p(95)']
+          : undefined;
+      const h = m[`board_cache{level:${l},result:hit}`]
+        ? m[`board_cache{level:${l},result:hit}`].values.count
+        : 0;
+      const mi = m[`board_cache{level:${l},result:miss}`]
+        ? m[`board_cache{level:${l},result:miss}`].values.count
+        : 0;
+      const c = m[`version_conflicts{level:${l}}`]
+        ? m[`version_conflicts{level:${l}}`].values.count
+        : 0;
+      lines.push(
+        `${String(l).padEnd(6)} ${(step ? n / step : 0).toFixed(1).padStart(6)} ${(step ? w / step : 0).toFixed(1).padStart(9)} ${(e * 100).toFixed(2).padStart(5)} ${f(d.med).padStart(6)} ${f(d['p(95)']).padStart(6)} ${f(d['p(99)']).padStart(6)} ${f(p('board')).padStart(10)} ${f(p('create')).padStart(11)} ${f(p('move')).padStart(9)} ${(h + mi ? (100 * h) / (h + mi) : 0).toFixed(1).padStart(11)} ${String(c).padStart(5)}`,
+      );
+    }
+  }
   const out = { stdout: `\n${lines.join('\n')}\n` };
   if (__ENV.SUMMARY_FILE) out[__ENV.SUMMARY_FILE] = JSON.stringify(data, null, 1);
   return out;
