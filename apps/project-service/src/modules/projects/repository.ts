@@ -31,14 +31,3 @@ export async function listProjectsInWorkspace(ex: DbExecutor, workspaceId: strin
     .where(eq(projects.workspaceId, workspaceId))
     .orderBy(asc(projects.createdAt));
 }
-
-export async function findBoardWithColumns(ex: DbExecutor, projectId: string) {
-  const [board] = await ex.select().from(boards).where(eq(boards.projectId, projectId));
-  if (!board) return undefined;
-  const columns = await ex
-    .select()
-    .from(boardColumns)
-    .where(eq(boardColumns.boardId, board.id))
-    .orderBy(asc(boardColumns.position), asc(boardColumns.id));
-  return { board, columns };
-}

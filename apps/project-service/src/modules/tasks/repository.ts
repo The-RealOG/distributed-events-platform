@@ -105,17 +105,6 @@ export async function positionAfter(
   return result.rows[0]!.position;
 }
 
-export async function listActiveTasksForProject(ex: DbExecutor, projectId: string) {
-  return (
-    ex
-      .select()
-      .from(tasks)
-      .where(and(eq(tasks.projectId, projectId), isNull(tasks.deletedAt)))
-      // id breaks ties if two concurrent moves computed the same position.
-      .orderBy(asc(tasks.position), asc(tasks.id))
-  );
-}
-
 export async function listAssigneeIds(
   ex: DbExecutor,
   taskIds: string[],

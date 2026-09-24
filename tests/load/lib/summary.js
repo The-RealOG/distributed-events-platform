@@ -70,6 +70,10 @@ export function handleSummary(data) {
       );
     }
   }
+  for (const result of ['hit', 'miss', 'bypass']) {
+    const t = m[`board_ms_by_cache{result:${result}}`];
+    if (t && t.values.count) row(`  board (${result})`, t.values);
+  }
   const out = { stdout: `\n${lines.join('\n')}\n` };
   if (__ENV.SUMMARY_FILE) out[__ENV.SUMMARY_FILE] = JSON.stringify(data, null, 1);
   return out;

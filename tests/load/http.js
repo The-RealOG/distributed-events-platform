@@ -2,7 +2,7 @@
 // multi-project); see tests/load/README.md.   k6 run -e BASE_URL=https://… -e SCENARIO=balanced tests/load/http.js
 import { check, sleep } from 'k6';
 import exec from 'k6/execution';
-import { Counter } from 'k6/metrics';
+import { Counter, Trend } from 'k6/metrics';
 import { call } from './lib/api.js';
 import {
   DURATION,
@@ -23,6 +23,8 @@ const OPS = Object.keys(MIX);
 const conflicts = new Counter('version_conflicts'); // 409: expected under contention
 const boardCache = new Counter('board_cache'); // tagged by x-board-cache value (client-side view)
 const writesOk = new Counter('writes_ok');
+// Board latency split by what the server did: HIT (warm) vs MISS (cold: PostgreSQL + write-back).
+const boardByCache = new Trend('board_ms_by_cache', true);
 
 // Success criteria, fixed BEFORE any run (docs/performance.md#success-criteria). A run that
 // breaks them is reported as such; they are not tuned afterwards.
@@ -32,6 +34,8 @@ const thresholds = {
 };
 for (const op of OPS) thresholds[`http_req_duration{op:${op}}`] = ['p(95)<1000'];
 // Expose the client-side cache view per result (hit/miss/…) in the summary.
+for (const result of ['hit', 'miss', 'bypass'])
+  thresholds[`board_ms_by_cache{result:${result}}`] = ['max>=0'];
 for (const result of ['hit', 'miss', 'refresh', 'none'])
   thresholds[`board_cache{result:${result}}`] = ['count>=0'];
 
@@ -149,7 +153,9 @@ export default function (data) {
     case 'board': {
       const r = call('board', 'GET', `/projects/${project.id}/board`, { token: user.token });
       check(r, { 'board ok': (x) => x.status === 200 });
-      boardCache.add(1, { result: (r.res.headers['X-Board-Cache'] || 'none').toLowerCase() });
+      const result = (r.res.headers['X-Board-Cache'] || 'none').toLowerCase();
+      boardCache.add(1, { result });
+      if (r.status === 200) boardByCache.add(r.res.timings.duration, { result });
       break;
     }
     case 'task': {

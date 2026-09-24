@@ -682,8 +682,9 @@ export const mutations = [
     edits: [
       {
         file: BOARD_SERVICE,
-        find: '    await requireProjectRole(this.db, principal.userId, projectId, REQUIRED_ROLE.readProject);\n    if (options.fresh) {',
-        replace: '    if (options.fresh) {',
+        find: '    const { project } = await requireProjectRole(\n      this.db,\n      principal.userId,\n      projectId,\n      REQUIRED_ROLE.readProject,\n    );\n    if (!this.boardCache)',
+        replace:
+          "    const early = options.fresh ? undefined : await this.boardCache?.read(projectId);\n    if (early?.status === 'hit') return { board: early.value, cache: 'HIT' };\n    const { project } = await requireProjectRole(\n      this.db,\n      principal.userId,\n      projectId,\n      REQUIRED_ROLE.readProject,\n    );\n    if (!this.boardCache)",
       },
     ],
     tests: [SYSTEM_P67],

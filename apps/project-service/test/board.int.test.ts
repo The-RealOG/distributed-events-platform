@@ -57,4 +57,47 @@ describe('projects and boards', () => {
         .status,
     ).toBe(404);
   });
+
+  it('every board read is one snapshot: under concurrent moves each task appears exactly once, and the wire format is stable', async () => {
+    const f = await createProjectFixture(h);
+    const tasks = [];
+    for (let i = 0; i < 12; i++) tasks.push(await createTask(h, f, `T${i}`, i % 3));
+    const versions = new Map(tasks.map((t) => [t.id, t.version]));
+    let moving = true;
+    const mover = (async () => {
+      for (let round = 0; moving && round < 200; round++) {
+        await Promise.all(
+          tasks.map(async (t, i) => {
+            const res = await h.call('POST', `/tasks/${t.id}/move`, {
+              as: f.owner,
+              body: {
+                expectedVersion: versions.get(t.id),
+                columnId: f.columns[(i + round) % 3]!.id,
+                afterTaskId: null,
+              },
+            });
+            if (res.status === 200) versions.set(t.id, res.body.version);
+          }),
+        );
+      }
+    })();
+    for (let read = 0; read < 40; read++) {
+      const board = await h.call('GET', `/projects/${f.projectId}/board`, { as: f.owner });
+      expect(board.status).toBe(200);
+      const ids = board.body.columns.flatMap((c: { tasks: { id: string }[] }) =>
+        c.tasks.map((t) => t.id),
+      );
+      expect(ids.sort()).toEqual(tasks.map((t) => t.id).sort());
+    }
+    moving = false;
+    await mover;
+    const board = await h.call('GET', `/projects/${f.projectId}/board`, { as: f.owner });
+    const one = board.body.columns.flatMap((c: { tasks: unknown[] }) => c.tasks)[0];
+    // Same shape and formats as GET /tasks/:id (timestamps with millisecond precision, Z).
+    const single = await h.call('GET', `/tasks/${(one as { id: string }).id}`, { as: f.owner });
+    expect(one).toEqual(single.body);
+    expect((one as { createdAt: string }).createdAt).toMatch(
+      /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/,
+    );
+  });
 });

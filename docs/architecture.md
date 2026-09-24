@@ -1,30 +1,57 @@
 # Architecture
 
-> This document tracks the implementation as it stands. Sections are added as phases land.
-> Current state: **Phase 7**. A React frontend and an API Gateway in front of the Project
-> Service (PostgreSQL, authoritative). Changes and their domain events commit together
-> (transactional outbox); the Outbox Publisher delivers events to Kafka. Two consumers react:
-> the Activity Service projects history (ADR-014) and the Cache Invalidator keeps the shared
-> Redis board cache fresh (ADR-015); both are duplicate-safe (ADR-013). No WebSockets,
-> notifications or object storage yet.
+> Final state (Phase 10). A React frontend and an API Gateway in front of the Project Service
+> (PostgreSQL, authoritative). Changes and their domain events commit together (transactional
+> outbox); the Outbox Publisher delivers events to Kafka. Three consumers react: the Activity
+> Service projects history (ADR-014), the Cache Invalidator keeps the shared board cache fresh
+> (ADR-015), and the Realtime Service notifies connected browsers over WebSockets (ADR-016/017).
+> Poison events go to a DLQ (ADR-019). Attachment bytes go browser ⇄ S3 directly (ADR-021).
+> Every service exposes Prometheus metrics (ADR-020). Consistency and delivery guarantees:
+> [consistency-and-delivery.md](consistency-and-delivery.md); failure behaviour:
+> [failure-testing.md](failure-testing.md); measurements: [performance.md](performance.md).
 
 ## Topology
 
+Legend: **solid** = synchronous request path · **dashed** = asynchronous (Kafka) ·
+**dotted** = ephemeral realtime push · **thick** = object bytes (never through our services).
+Cylinders are storage: PostgreSQL is authoritative; Redis is a disposable cache.
+
 ```mermaid
 flowchart LR
-  browser[Browser<br/>React SPA] -->|static files| web[web<br/>nginx :8080]
-  browser -->|/api/*, Bearer JWT,<br/>x-correlation-id| gw[api-gateway :3000]
-  gw -->|internal HTTP| ps[project-service :3001<br/>replicas share the cache]
-  ps -->|domain change + outbox row,<br/>one transaction| pg[(PostgreSQL<br/>authoritative)]
-  ps -->|board: cache-aside<br/>GET / SET if generation unchanged| redis[(Redis / Valkey<br/>disposable)]
+  browser[Browser<br/>React SPA]
+  cdn[CloudFront<br/>SPA + /api/*]
+  gw[api-gateway :3000<br/>proxy · WS relay · Origin check]
+  ps[project-service :3001<br/>commands · board · attachments control plane]
+  pg[(PostgreSQL<br/>AUTHORITATIVE<br/>domain + outbox + activity + attachments meta)]
+  redis[(Valkey / Redis<br/>DISPOSABLE board cache)]
+  op[outbox-publisher :3002]
+  kafka[(Kafka<br/>domain.events ×3 · key = projectId<br/>domain.events.dlq ×1)]
+  act[activity-service :3003]
+  inv[cache-invalidator :3004]
+  rt[realtime-service :3005<br/>one consumer group per replica]
+  s3[(S3<br/>attachment bytes)]
+  prom[Prometheus + Grafana<br/>scrape private /metrics]
 
-  op[outbox-publisher :3002] -->|claim · mark| pg
-  op -->|publish, acks=-1| kafka[(Kafka<br/>domain.events ×3<br/>domain.events.dlq ×1)]
-  kafka -->|group activity-service| act[activity-service :3003]
-  act -->|activity row + processed marker,<br/>one transaction| pg
-  kafka -->|group cache-invalidator| inv[cache-invalidator :3004]
-  inv -->|INCR gen + DEL board:v1:projectId| redis
-  tools[kafka-tools<br/>init job · probe consumer] <--> kafka
+  browser --> cdn --> gw
+  gw -->|HTTP| ps
+  ps -->|change + outbox row, ONE transaction| pg
+  ps -->|board cache-aside| redis
+  ps -. presign / HEAD / delete .-> s3
+
+  op -->|claim · mark published| pg
+  op -.->|publish acks=-1| kafka
+  kafka -.->|group activity-service| act
+  act -->|row + processed marker, one transaction| pg
+  act -.->|poison → DLQ| kafka
+  kafka -.->|group cache-invalidator| inv
+  inv -->|INCR gen + DEL| redis
+  kafka -.->|group realtime-service.&lt;replica&gt;| rt
+  rt -->|membership check| pg
+
+  gw <-. wss /api/realtime .-> rt
+  browser <-. WebSocket notifications .-> cdn
+  browser ==>|presigned POST / GET| s3
+  prom -.- ps & op & act & inv & rt & gw
 ```
 
 ```
@@ -501,8 +528,9 @@ Parsing classifies every failure; the checks run in this order:
 | `invalid_payload`            | a `task.created` payload under `task.moved`, a missing field, `aggregateId` ≠ payload id |
 
 A malformed message is logged at `warn` with its coordinates and reason (never the raw
-bytes), passed to `hooks.onInvalidMessage`, and skipped with its offset committed. The
-consumer keeps running and can't loop on it. It is not yet copied to the DLQ (Phase 9).
+bytes), passed to `hooks.onInvalidMessage`, and, for consumers with a DLQ (activity-service),
+dead-lettered with bounded raw bytes before its offset is committed (ADR-019). Consumers
+without a DLQ skip it with the offset committed. Either way it cannot block or loop.
 
 ### Correlation
 
@@ -543,12 +571,8 @@ Run it through `scripts/kafka` (which `exec`s node), not `npm run`: npm exits on
 kills a consumer before it can leave its group (observed: the group kept a stale member until
 its session timed out).
 
-## Failure behaviour (current)
+## Failure behaviour
 
-| Dependency      | Failure     | Behaviour                                                                                                                                                                                              | Verified by                                                                                                                    |
-| --------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| PostgreSQL      | unreachable | project-service `/ready` 503; API 503 without internals, passed through the gateway; the UI shows "temporarily unavailable", keeps the last board and offers retry; recovers when the database returns | `apps/project-service/test/degradation.int.test.ts`, `tests/integration/gateway-chain.int.test.ts`, `tests/e2e/outage.spec.ts` |
-| project-service | down        | gateway returns 503 (`upstream_unreachable`) within the connect timeout; gateway stays ready; the UI behaves as above                                                                                  | `apps/api-gateway/test/gateway.test.ts`, `tests/integration/gateway-chain.int.test.ts`, `tests/e2e/outage.spec.ts`             |
-| project-service | slow        | gateway 503 (`upstream_timeout`) after 15 s; the message says the outcome is unknown; no retry                                                                                                         | `apps/api-gateway/test/gateway.test.ts`                                                                                        |
-| Kafka           | down        | no effect on serving traffic (nothing in the request path uses Kafka yet); Kafka tooling reports errors                                                                                                | `tests/e2e/kafka-independence.spec.ts`, `tests/architecture/request-path.test.ts`                                              |
-| any service     | SIGTERM     | marks unready, drains HTTP (sending `Connection: close` on responses written while draining so keep-alive clients let go), closes dependencies, exits 0; forced exit after `SHUTDOWN_TIMEOUT_MS`       | `packages/runtime/src/*.test.ts`, `tests/integration/gateway-chain.int.test.ts`                                                |
+Moved to [failure-testing.md](failure-testing.md) (the tested failure matrix with injection
+method, observed behaviour and recovery for every dependency) and
+[consistency-and-delivery.md](consistency-and-delivery.md) (what each guarantee is).
