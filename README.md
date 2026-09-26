@@ -1,32 +1,72 @@
 # Distributed Project Platform
 
-A project-management platform (workspaces, boards, tasks, comments, attachments) built as a
-vehicle for demonstrating distributed-systems engineering: PostgreSQL as the source of truth,
-a transactional outbox feeding Kafka, idempotent consumers, Redis cache-aside with
-event-driven invalidation, WebSocket realtime delivery, presigned direct-to-object-storage
-uploads, and Prometheus/Grafana observability — all runnable locally with Docker Compose.
+A project-management platform (workspaces, boards, tasks, comments, attachments) built to
+practice distributed-systems engineering, with its claims backed by tests, experiments and
+measurements on real AWS infrastructure.
 
-> **Status:** under active, phased construction. This README describes only what exists and
-> has been verified. Sections for later phases are added as those phases land.
+## What it demonstrates
 
-## Implementation status
+- **Authoritative state:** PostgreSQL, with optimistic concurrency (a stale `expectedVersion`
+  returns 409).
+- **Events that can't diverge from state:** a transactional outbox writes each change and its
+  event in one transaction, and a separate publisher delivers events to Kafka (keyed by
+  project, `acks=-1`).
+- **Duplicate-safe consumers:** each consumer records `processed_events` in the same
+  transaction as its side effect.
+- **Read models:** an Activity feed projection, and a shared Redis board cache invalidated by
+  Kafka events (never written or deleted from the request path).
+- **Realtime collaboration:** WebSocket notifications fed only by committed events, delivered
+  through every realtime replica, with invalidate-and-refetch clients.
+- **Failure handling:** bounded retries with transient/permanent classification, and a DLQ
+  with safe replay.
+- **Attachments:** S3 presigned uploads and downloads; the API is only the control plane.
+- **Observability:** Prometheus metrics with a cardinality guard, Grafana dashboards as code,
+  and correlation IDs from browser to consumers.
+- **Infrastructure and delivery:** Terraform for AWS (ECS Fargate, RDS, MSK, ElastiCache, ALB,
+  CloudFront, S3), CI/CD through GitHub Actions and OIDC with no long-lived keys, and 79
+  deliberate breaks ("mutations") that CI proves the tests catch.
 
-| Phase | Scope                                                                          | State       |
-| ----- | ------------------------------------------------------------------------------ | ----------- |
-| 0     | Monorepo, TypeScript strict, lint/format, Vitest, config, Docker setup         | Done        |
-| 1     | PostgreSQL schema, Project Service, JWT auth, optimistic concurrency           | Done        |
-| 2     | Frontend baseline + thin API Gateway                                           | Done        |
-| 3     | Kafka infrastructure and domain-event contracts (no publishing yet)            | Done        |
-| 4     | Transactional outbox + outbox publisher (PostgreSQL → Kafka)                   | Done        |
-| 3.5   | AWS dev environment (Terraform, ECS Fargate, RDS, MSK, CloudFront, OIDC CI/CD) | Done        |
-| 5     | Activity Service and idempotent consumers                                      | Not started |
-| 6     | Realtime (WebSocket) Service                                                   | Not started |
-| 7     | Redis cache-aside and distributed invalidation                                 | Not started |
-| 8     | File Service and presigned uploads                                             | Not started |
-| 9     | Reliability: retries, DLQ, shutdown, readiness                                 | Not started |
-| 10    | Observability: Prometheus, Grafana                                             | Not started |
-| 11    | Load testing (k6)                                                              | Not started |
-| 12    | CI, Docker hardening, Terraform skeleton                                       | Not started |
+```
+Browser ─▶ CloudFront ─▶ ALB ─▶ api-gateway ─▶ project-service ─▶ PostgreSQL (state + outbox, one transaction)
+   │                                 │                 └─▶ Redis (board cache, disposable)
+   │  wss (relay)                    └─▶ realtime-service ◀─┐
+   └─ presigned POST/GET ─▶ S3                              │
+outbox-publisher ─▶ Kafka ─┬─▶ activity-service (+ DLQ) ─▶ PostgreSQL
+                           ├─▶ cache-invalidator ─▶ Redis
+                           └─▶ realtime-service (one group per replica) ─▶ WebSockets
+```
+
+Full diagram and details: [docs/architecture.md](docs/architecture.md). The guarantees are
+stated precisely in [docs/consistency-and-delivery.md](docs/consistency-and-delivery.md).
+Decisions are recorded in [docs/adr/](docs/adr/) (ADR-001 to ADR-022).
+
+## Status and next session
+
+Phases 0–9 are complete, deployed and verified on AWS. **Phase 10 (measure, break, document)
+is in progress.** Done so far:
+
+- **Load harness:** k6 scenarios, a WebSocket load test, and a runner workflow. Every run keeps
+  its evidence in `tests/load/results/`.
+- **Baseline balanced load ladder:** sustained up to 50 VUs, at about 90 req/s with p95 381 ms
+  and 0 errors. The bottleneck is project-service CPU (0.25 vCPU); RDS stayed at ≤16 %.
+- **Optimization 1**, measured with a CPU profile before the change: the board is now read in
+  one statement. That doubled the sustained load to 100 VUs, at 184 req/s with p95 246 ms.
+- **Outbox recovery:** a backlog of 300 events drained at about 55 events/s.
+- **AWS verification of Phases 8–9:** realtime between two users, DLQ on MSK, and
+  direct-to-S3 attachments. Two real bugs were found and fixed; see
+  [docs/bug-ledger.md](docs/bug-ledger.md).
+
+Details: [docs/performance.md](docs/performance.md). Remaining Phase-10 work, in order:
+
+1. The cache on/off experiment (`-var board_cache_enabled=false`), then read-heavy, write-heavy,
+   hot-project and multi-project runs.
+2. The api-gateway CPU, which is now a co-bottleneck at saturation.
+3. WebSocket load at 100, 500 and 1000 sockets.
+4. Failure injections: `npm run aws:demo:failures` (ECS tasks, RDS reboot, MSK broker reboot)
+   and `npm run aws:demo` (Activity, invalidator and Redis outages).
+5. A 30-minute soak.
+6. `npm run aws:invariants`.
+7. The final Terraform plan and `aws:audit`, the README results and the final report.
 
 ## Repository layout
 
@@ -36,7 +76,10 @@ apps/
   api-gateway/         Single external HTTP entry point: routing, CORS, correlation, timeouts
   project-service/     Workspaces, projects, boards, tasks, assignees, comments (Fastify)
   outbox-publisher/    Worker: PostgreSQL outbox → Kafka (claim/lease, backoff, at-least-once)
-  kafka-tools/         Kafka CLI: topic init job, inspection, sample/malformed producers, probe consumer
+  kafka-tools/         Kafka CLI: topic init job, inspection, sample/malformed producers, DLQ list/replay
+  activity-service/    Kafka consumer → activity feed projection (idempotent; DLQ for poison events)
+  cache-invalidator/   Kafka consumer → board cache invalidation (Redis)
+  realtime-service/    Kafka consumer → WebSocket notifications (JWT auth, project rooms)
     src/http/          transport concerns: auth hook, error model, shared schemas
     src/domain/        roles and access checks
     src/modules/*/     routes → service → repository per area
@@ -50,12 +93,20 @@ packages/
   contracts/           Shared contracts (Zod): HTTP DTOs, the public error shape, domain events
   kafka/               Kafka client, topics, DomainEventProducer/Consumer, partitioning
   runtime/             Graceful shutdown and connection draining for services
+  cache/               Shared board cache (cache-aside, generation-guarded write-back)
+  storage/             ObjectStorage interface + S3 implementation (presigned POST/GET)
 tests/
   architecture/        Static guards (e.g. the request path must not depend on Kafka)
   integration/         Cross-service tests with real service processes (gateway → service → DB)
   e2e/                 Playwright tests against the running Docker stack
+  load/                k6 load tests (HTTP scenarios, WebSocket fanout) and their results/
 infrastructure/
   docker/              Shared Node-service Dockerfile; web Dockerfile + nginx config
+  terraform/           AWS dev environment (modules + environments/dev)
+  observability/       Prometheus config, Grafana provisioning, dashboards (generated)
+scripts/aws/           AWS operations: rebuild/deploy/destroy, audit, demos, failure injections
+scripts/load/          Load-run orchestration (metrics snapshots, CloudWatch window, report)
+scripts/mutations/     Deliberate breaks and their runner (CI: .github/workflows/mutations.yml)
 scripts/smoke.mjs      End-to-end smoke test against a running stack
 scripts/kafka          Kafka developer tooling (see below)
 scripts/outbox         Outbox diagnostics and API-driven backlog generator
@@ -66,21 +117,30 @@ docker-compose.yml     Local environment
 See [docs/architecture.md](docs/architecture.md) for the topology, the gateway, frontend
 server-state strategy, conflict UX, layering, authorization, the error model and the data model.
 
-## AWS development environment
+## AWS environment
 
-The platform also runs in AWS (`us-east-2`) so Docker Desktop can stay closed: RDS PostgreSQL,
-MSK (IAM auth), ECS Fargate services, CloudFront + S3 for the SPA, images built by GitHub Actions
-via OIDC. Everything is driven from the terminal. See
-[docs/aws-development.md](docs/aws-development.md) and
-[ADR-012](docs/adr/012-aws-development-runtime.md).
+Terraform in `infrastructure/terraform`, driven by `npm run aws:*` scripts; images are built by
+GitHub Actions (OIDC; no long-lived keys). See [docs/aws-development.md](docs/aws-development.md).
 
 ```bash
+npm run aws:rebuild    # everything from nothing, one command: state bucket → plan → confirm →
+                       # apply → build + deploy main → drift check (~45 min, mostly MSK)
+npm run aws:destroy    # tear it all down (confirmation required); aws:destroy:all also
+                       # removes the Terraform state bucket
+npm run aws:deploy     # deploy the current main commit (build, migrate, roll, smoke)
 npm run aws:status     # what is running, where, which SHA
-npm run aws:deploy     # remote build + migrate + roll + smoke (no local Docker)
-npm run aws:logs -- project-service
-npm run aws:test       # cloud verification suite
-npm run aws:destroy    # tear it all down (confirmation required)
+npm run aws:audit      # read-only security/inventory audit (40 checks)
+npm run aws:cost-info  # current AWS unit rates for the deployed resources
+npm run aws:demo:realtime   # Phase 8-9 demo: two users live, reconnect, replica swap, S3
+npm run aws:demo:dlq        # poison message → DLQ on MSK
+npm run aws:demo            # activity/invalidator/Redis outages and catch-up
+npm run aws:demo:failures   # publisher outage, ECS task stops, RDS reboot, MSK broker reboot
+npm run aws:invariants      # read-only data-invariant audit through an SSM tunnel
+scripts/load/run.sh <label> http balanced "LADDER=10,50,100 STEP=3m"   # measured load run
 ```
+
+The environment costs money while it exists: `npm run aws:destroy` when not demoing, and
+`npm run aws:rebuild` to bring it back exactly (all state is in the repository).
 
 ## Quick start
 
@@ -192,24 +252,37 @@ depend on the client's view of a task take `expectedVersion` and return **409
 
 ## Testing
 
-| Suite                    | Where                                               | What it proves                                                                                                                                                                                                                                                                                      |
-| ------------------------ | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unit                     | `packages/*/src/*.test.ts`, `apps/*/src/*.test.ts`  | config validation, JWT verification (expiry, issuer, audience, `alg:none`), role rules, request IDs, error shape, readiness                                                                                                                                                                         |
-| Integration              | `apps/project-service/test/*.int.test.ts`           | full HTTP → PostgreSQL behaviour: RBAC, 401/403/404/409, ordering, soft delete, idempotent assignment, DB-down 503                                                                                                                                                                                  |
-| Forced-interleaving race | `apps/project-service/test/concurrency.int.test.ts` | two real transactions in the lost-update interleaving; the second matches zero rows                                                                                                                                                                                                                 |
-| Gateway                  | `apps/api-gateway/test/gateway.test.ts`             | routing allowlist, header allowlist, correlation/request IDs, byte-exact bodies, 503 on unreachable/slow upstream, no retries, 413, CORS, security headers, draining                                                                                                                                |
-| Frontend                 | `apps/web/src/**/*.test.ts(x)`                      | error parsing, API client, session/401 flow, board rendering, moves, 409 conflict UX, 503/403/404 states                                                                                                                                                                                            |
-| Event contracts          | `packages/contracts/src/events.test.ts`             | every event type round-trips; missing fields, wrong payload for a type, bad metadata, unknown type, unsupported schemaVersion are each classified                                                                                                                                                   |
-| Kafka (real broker)      | `packages/kafka/test/*.int.test.ts`                 | acks + key + metadata, invalid events never sent, failures surfaced, 8 kinds of malformed message skipped without stopping, per-project order, key→partition, consumer-group split vs. independent groups, graceful consumer/producer shutdown, broker stop/restart recovery, correlation unchanged |
-| Architecture             | `tests/architecture/*.test.ts`                      | no request-path app depends on or imports Kafka                                                                                                                                                                                                                                                     |
-| Stack demonstrations     | `tests/stack/*.stack.test.ts`                       | Kafka down (and publisher down) on the real Compose stack: writes succeed, events wait, then drain with unchanged identity                                                                                                                                                                          |
-| Cross-service            | `tests/integration/*.int.test.ts`                   | real gateway + project-service processes + PostgreSQL: correlation across hops (from logs), no JWT in logs, DB outage and upstream outage → safe 503                                                                                                                                                |
-| Browser E2E              | `tests/e2e/*.spec.ts`                               | full lifecycle in Chromium; two-browser stale edit; PostgreSQL and project-service outages with recovery                                                                                                                                                                                            |
-| Smoke                    | `scripts/smoke.mjs`                                 | the running Docker stack end to end, through the gateway                                                                                                                                                                                                                                            |
+Executed test counts per package from the CI run of `4d3ff72` (all green). Integration tests run
+against real PostgreSQL, Kafka, Redis and LocalStack S3 via Testcontainers:
 
-The critical guards were checked by mutation: breaking the version check, the gateway's error
-handling, retry suppression, timeouts, correlation propagation, body forwarding, and the
-frontend's conflict handling each makes the corresponding tests fail.
+| Area                                                                                                   | Unit                         | Integration (real infrastructure) |
+| ------------------------------------------------------------------------------------------------------ | ---------------------------- | --------------------------------- |
+| project-service (HTTP → PostgreSQL, outbox, attachments, board snapshot)                               | 10                           | 74                                |
+| outbox-publisher                                                                                       | 8                            | 16                                |
+| kafka (producer/consumer, retries, DLQ)                                                                | 19                           | 22                                |
+| activity-service (idempotent projection)                                                               | 4                            | 10                                |
+| cache / cache-invalidator                                                                              | 2 / 1                        | 7                                 |
+| realtime-service (auth, rooms, replicas, backpressure, heartbeats)                                     | 5                            | 9                                 |
+| storage (presigned policy, S3 behaviour)                                                               | 2                            | 5                                 |
+| system (real processes: gateway ⇄ services ⇄ DB/Kafka, dashboards vs Prometheus) + architecture guards | 23                           | 37                                |
+| web (React)                                                                                            | 54                           | —                                 |
+| api-gateway / auth / config / contracts / database / observability / runtime                           | 16 / 10 / 6 / 35 / 5 / 8 / 5 | —                                 |
+| **Total executed in CI (393)**                                                                         | **213**                      | **180**                           |
+
+Plus:
+
+- **Deliberate breaks:** 79, each with a baseline per phase. Every break edits the code in
+  one exact place, and CI requires the named tests to fail (`npm run` via
+  `.github/workflows/mutations.yml`). All pass for Phases 4–9.
+- **Playwright:** 4 specs against the local Compose stack. They include Docker-level outages,
+  so they don't run in CI.
+- **AWS demos and failure injections:** the `npm run aws:demo*` scripts, with results recorded
+  in `docs/performance.md` and `docs/failure-testing.md`.
+
+CI (`.github/workflows/ci.yml`) plans affected work, shards the integration suites, and runs
+static checks (lint, typecheck, format), security checks (`npm audit` for production
+dependencies, gitleaks secret scanning), unit tests and the integration shards. Images are scanned
+on push by ECR, and `npm run aws:audit` checks the live AWS configuration; see [docs/ci.md](docs/ci.md).
 
 ## Docker images
 

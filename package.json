@@ -50,7 +50,8 @@
     "aws:demo:realtime": "scripts/aws/demo-realtime.sh",
     "aws:demo:dlq": "scripts/aws/demo-dlq.sh",
     "aws:invariants": "scripts/aws/invariants.sh",
-    "aws:demo:failures": "scripts/aws/demo-failures.sh"
+    "aws:demo:failures": "scripts/aws/demo-failures.sh",
+    "aws:rebuild": "scripts/aws/rebuild.sh"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

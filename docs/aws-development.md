@@ -65,6 +65,14 @@ The only value you provide is the budget alert email, in the untracked file
 budget_alert_email = "you@example.com"
 ```
 
+## Rebuild everything in one command
+
+`npm run aws:rebuild` recreates the environment from nothing (the counterpart of
+`npm run aws:destroy`): state bucket → `terraform plan` → confirmation → apply → GitHub Actions
+build and deploy of the current `main` commit (images, migrations, topics, rollout, smoke) →
+drift check. About 45 minutes, most of it MSK creation. `-- --yes` skips the prompt. Nothing
+needs the AWS console.
+
 ## First time
 
 ```bash

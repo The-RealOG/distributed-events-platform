@@ -156,6 +156,8 @@ export function handleSummary(data) {
     `server-initiated closes ${v('ws_closed_by_server', 'count')}`,
   ];
   const out = { stdout: `\n${lines.join('\n')}\n` };
-  if (__ENV.SUMMARY_FILE) out[__ENV.SUMMARY_FILE] = JSON.stringify(data, null, 1);
+  // setup_data holds the load users' tokens: never written to disk.
+  if (__ENV.SUMMARY_FILE)
+    out[__ENV.SUMMARY_FILE] = JSON.stringify({ ...data, setup_data: undefined }, null, 1);
   return out;
 }

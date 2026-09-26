@@ -75,6 +75,8 @@ export function handleSummary(data) {
     if (t && t.values.count) row(`  board (${result})`, t.values);
   }
   const out = { stdout: `\n${lines.join('\n')}\n` };
-  if (__ENV.SUMMARY_FILE) out[__ENV.SUMMARY_FILE] = JSON.stringify(data, null, 1);
+  // setup_data holds the load users' tokens: never written to disk.
+  if (__ENV.SUMMARY_FILE)
+    out[__ENV.SUMMARY_FILE] = JSON.stringify({ ...data, setup_data: undefined }, null, 1);
   return out;
 }
