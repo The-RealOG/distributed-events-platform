@@ -1,0 +1,53 @@
+# Load run `e-ws-500`
+
+## k6 (load generator view)
+
+```
+connections 500 on 20 project(s); subscribed 100.00 %
+events published 300 (2/s); notifications received 7500 of ~7500 expected (100.00 %)
+notification after HTTP 201 (ms): p50 245  p95 520  p99 547  max 551  (n=300)
+notification after request sent (ms): p50 330  p95 611  p99 613
+server-initiated closes 0
+```
+
+## Service metrics (deltas over the run)
+
+- Board cache (server): hits 0, misses 20, errors 0 → hit rate **0.0 %**
+- project-service HTTP responses by class: 2xx 1551
+- Outbox: published 400; failures 0; pending after 0.0; oldest pending age after 0.0 s
+- activity-service consumer messages: processed 400; retries 0; dead-lettered 0
+- cache-invalidator consumer messages: processed 400; retries 0; dead-lettered 0
+- realtime-service consumer messages: processed 400; retries 0; dead-lettered 0
+- activity outcomes: processed 400
+- realtime hub: broadcast 7800; connections now 0.0
+- project-service DB pool at end: total 0, idle 0; waiting 0
+- outbox-publisher DB pool at end: total 2, idle 2; waiting 0
+- activity-service DB pool at end: total 0, idle 0; waiting 0
+- realtime-service DB pool at end: total 0, idle 0; waiting 0
+- PostgreSQL (pg_stat_database, includes setup/seed): 4629 commits (8.2/s over 565 s between snapshots), rollbacks 0; tuples returned 3134478, fetched 50825, inserted 2723, updated 916, deleted 3; blocks read 0, hit 456041
+- project-service memory at end: RSS 129 MiB, heap used 31 MiB
+- api-gateway memory at end: RSS 129 MiB, heap used 29 MiB
+- realtime-service memory at end: RSS 116 MiB, heap used 36 MiB
+
+## CloudWatch (per-minute maxima over the window)
+
+| series | max | per-minute values |
+|---|---|---|
+| ecs/project-service/CPUUtilization | 54.21 | 29.73 10.11 54.21 14.06 12.44 13.7 18.08 |
+| ecs/project-service/MemoryUtilization | 33.79 | 33.79 29.59 30.66 30.86 30.76 30.66 29.88 |
+| ecs/api-gateway/CPUUtilization | 43.12 | 11.46 10.06 43.12 14.44 11.28 10.3 9.63 |
+| ecs/api-gateway/MemoryUtilization | 25.29 | 22.36 25.29 21.19 21.48 21.09 21.09 21.09 |
+| ecs/outbox-publisher/CPUUtilization | 26.86 | 13.39 26.86 18.37 18.91 19.99 19.5 19.08 |
+| ecs/outbox-publisher/MemoryUtilization | 29.2 | 22.56 29.2 24.22 24.32 24.61 24.61 24.02 |
+| ecs/activity-service/CPUUtilization | 19.49 | 13.81 19.49 13.79 15.2 15.38 15.34 14.78 |
+| ecs/activity-service/MemoryUtilization | 25.29 | 19.14 25.29 19.92 19.92 19.34 19.34 19.24 |
+| ecs/realtime-service/CPUUtilization | 34.22 | 14.78 34.22 28.53 22.24 16.12 16.51 17.54 |
+| ecs/realtime-service/MemoryUtilization | 23.24 | 17.19 23.24 20.61 21.09 20.7 20.51 20.41 |
+| ecs/cache-invalidator/CPUUtilization | 22.68 | 15.4 22.46 22.68 15.9 16.59 16.07 16.01 |
+| ecs/cache-invalidator/MemoryUtilization | 24.51 | 19.34 24.51 19.92 19.53 18.95 18.95 18.75 |
+| rds/CPUUtilization | 7.3 | 4.92 5.01 7.3 6.5 6.65 6.45 4.72 |
+| rds/DatabaseConnections | 4.0 | 3.0 2.0 3.0 3.0 4.0 3.0 1.0 |
+| rds/ReadIOPS | 11.44 | 10.84 2.57 3.95 11.44 0.75 |
+| rds/WriteIOPS | 20.98 | 9.54 20.98 3.28 19.29 2.32 |
+| redis/dpp-dev-001/EngineCPUUtilization | 0.75 | 0.7 0.7 0.7 0.73 0.73 0.73 0.75 |
+| redis/dpp-dev-001/CurrConnections | 7.0 | 7.0 7.0 7.0 7.0 7.0 7.0 7.0 |
