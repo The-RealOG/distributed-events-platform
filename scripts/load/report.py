@@ -96,6 +96,15 @@ for svc in ['project-service', 'outbox-publisher', 'activity-service', 'realtime
     waiting = gauge(svc, 'db_pool_waiting_requests')
     if waiting is not None:
         lines.append(f"- {svc} DB pool at end: {', '.join(f'{st} {gauge(svc, 'db_pool_connections', state=st):.0f}' for st in ['total', 'idle'] if gauge(svc, 'db_pool_connections', state=st) is not None)}; waiting {waiting:.0f}")
+pgb, pga = (os.path.join(d, side, 'pgstats.json') for side in ('before', 'after'))
+if os.path.exists(pgb) and os.path.exists(pga):
+    b, a = json.load(open(pgb)), json.load(open(pga))
+    secs = (datetime.fromisoformat(a['at'].replace('Z', '+00:00')) - datetime.fromisoformat(b['at'].replace('Z', '+00:00'))).total_seconds()
+    dd = {k: a[k] - b[k] for k in a if k not in ('at', 'numbackends')}
+    lines.append(f"- PostgreSQL (pg_stat_database, includes setup/seed): {dd['xact_commit']:.0f} commits "
+                 f"({dd['xact_commit'] / secs:.1f}/s over {secs:.0f} s between snapshots), rollbacks {dd['xact_rollback']:.0f}; "
+                 f"tuples returned {dd['tup_returned']:.0f}, fetched {dd['tup_fetched']:.0f}, inserted {dd['tup_inserted']:.0f}, "
+                 f"updated {dd['tup_updated']:.0f}, deleted {dd['tup_deleted']:.0f}; blocks read {dd['blks_read']:.0f}, hit {dd['blks_hit']:.0f}")
 for svc in ['project-service', 'api-gateway', 'realtime-service']:
     rss = gauge(svc, 'process_resident_memory_bytes')
     heap = gauge(svc, 'nodejs_heap_size_used_bytes')

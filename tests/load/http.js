@@ -46,10 +46,13 @@ const LADDER = (__ENV.LADDER || '')
   .filter(Boolean)
   .map((v) => parseInt(v, 10));
 const STEP = __ENV.STEP || '3m';
-const stepSeconds = (() => {
-  const m = /^(\d+)(s|m)$/.exec(STEP);
-  return m ? parseInt(m[1], 10) * (m[2] === 'm' ? 60 : 1) : 180;
-})();
+const WARMUP = __ENV.WARMUP || '';
+function seconds(d) {
+  const m = /^(\d+)(s|m)$/.exec(d);
+  if (!m) throw new Error(`duration ${d}: use <n>s or <n>m`);
+  return parseInt(m[1], 10) * (m[2] === 'm' ? 60 : 1);
+}
+const stepSeconds = seconds(STEP);
 function scenarios() {
   if (LADDER.length === 0) {
     return {
@@ -67,12 +70,30 @@ function scenarios() {
     };
   }
   const out = {};
+  // WARMUP="1m" adds a first phase at the lowest ladder level, tagged level=warmup and kept out of
+  // every per-level result: it warms connections, JIT and (when enabled) the board cache, so the
+  // first measured level is steady state. Cold behaviour is in the warmup phase's own samples.
+  const warmupSeconds = WARMUP ? seconds(WARMUP) : 0;
+  if (warmupSeconds) {
+    out.warmup = {
+      executor: 'constant-vus',
+      vus: Math.min(...LADDER),
+      duration: WARMUP,
+      gracefulStop: '5s',
+      tags: { kind: 'warmup', level: 'warmup' },
+    };
+    thresholds['http_reqs{level:warmup}'] = ['count>=0'];
+    thresholds['http_req_duration{level:warmup}'] = ['max>=0'];
+    for (const result of ['hit', 'miss'])
+      thresholds[`board_cache{level:warmup,result:${result}}`] = ['count>=0'];
+  }
+  const offset = warmupSeconds ? warmupSeconds + 5 : 0;
   LADDER.forEach((vus, i) => {
     out[`L${vus}`] = {
       executor: 'constant-vus',
       vus,
       duration: STEP,
-      startTime: `${i * (stepSeconds + 5)}s`,
+      startTime: `${offset + i * (stepSeconds + 5)}s`,
       gracefulStop: '5s',
       tags: { kind: 'api', level: String(vus) },
     };
@@ -100,7 +121,11 @@ export const options = {
 };
 
 export function setup() {
-  return seed();
+  const data = seed();
+  // Scenario start times are offsets from the end of setup: this marker lets the evidence tooling
+  // slice per-minute CloudWatch series by ladder level (scripts/load/compare.py).
+  console.log(`MEASURE_T0=${new Date().toISOString()}`);
+  return data;
 }
 
 function pick() {
