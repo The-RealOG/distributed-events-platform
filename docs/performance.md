@@ -339,3 +339,11 @@ allows one run at a time, so the WebSocket half (200 connections held for 30 min
     SCRAM handshake competes for the same small instance.
   - Next steps, not done in Phase 10: outbox retention, pool idle and minimum settings, and a
     longer soak to confirm the trend.
+
+**WebSocket half (`results/f-soak-ws/`, 21:19–21:51Z).** 200 connections were held for 30 min while
+the probe wrote 2 tasks/s.
+
+- 100 % subscribed for the whole run, with no server closes.
+- Delivery 35,320 / 35,320 expected (3,532 events × 10 subscribers on the probe's project).
+- Notify-after-commit p50 / p95 / p99: 248 / 500 / 510 ms (max 1.7 s).
+- realtime-service memory flat at 19.4–20.1 % and CPU at about 14.5 %, so no leak.

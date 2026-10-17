@@ -23,7 +23,7 @@ measurements on real AWS infrastructure.
 - **Observability:** Prometheus metrics with a cardinality guard, Grafana dashboards as code,
   and correlation IDs from browser to consumers.
 - **Infrastructure and delivery:** Terraform for AWS (ECS Fargate, RDS, MSK, ElastiCache, ALB,
-  CloudFront, S3), CI/CD through GitHub Actions and OIDC with no long-lived keys, and 79
+  CloudFront, S3), CI/CD through GitHub Actions and OIDC with no long-lived keys, and 81
   deliberate breaks ("mutations") that CI proves the tests catch.
 
 ```
@@ -40,33 +40,58 @@ Full diagram and details: [docs/architecture.md](docs/architecture.md). The guar
 stated precisely in [docs/consistency-and-delivery.md](docs/consistency-and-delivery.md).
 Decisions are recorded in [docs/adr/](docs/adr/) (ADR-001 to ADR-022).
 
-## Status and next session
+## Status
 
-Phases 0–9 are complete, deployed and verified on AWS. **Phase 10 (measure, break, document)
-is in progress.** Done so far:
+Phases 0–10 are complete. Phase 10 (measure, break, document) ran on AWS on 2026-10-17. The full
+methodology and raw evidence are in [docs/performance.md](docs/performance.md) and
+[docs/failure-testing.md](docs/failure-testing.md), and the defects found are in
+[docs/bug-ledger.md](docs/bug-ledger.md) (#22–29 found in Phase 10). Phases 11–12 have not been
+started.
 
-- **Load harness:** k6 scenarios, a WebSocket load test, and a runner workflow. Every run keeps
-  its evidence in `tests/load/results/`.
-- **Baseline balanced load ladder:** sustained up to 50 VUs, at about 90 req/s with p95 381 ms
-  and 0 errors. The bottleneck is project-service CPU (0.25 vCPU); RDS stayed at ≤16 %.
-- **Optimization 1**, measured with a CPU profile before the change: the board is now read in
-  one statement. That doubled the sustained load to 100 VUs, at 184 req/s with p95 246 ms.
-- **Outbox recovery:** a backlog of 300 events drained at about 55 events/s.
-- **AWS verification of Phases 8–9:** realtime between two users, DLQ on MSK, and
-  direct-to-S3 attachments. Two real bugs were found and fixed; see
-  [docs/bug-ledger.md](docs/bug-ledger.md).
+Results in one paragraph:
 
-Details: [docs/performance.md](docs/performance.md). Remaining Phase-10 work, in order:
+- **Bottleneck:** project-service CPU (one 0.25 vCPU task) in every workload. A second task doubled
+  saturated throughput, and the api-gateway then became the limit at about 300 req/s per 0.25 vCPU
+  task.
+- **Optimization 1:** the board read in one statement cuts CPU per request by 22 % in a controlled
+  A/B. The earlier +104 % was a measurement error and is withdrawn.
+- **Redis:** it offloads the database (4–14× fewer tuples read) but adds little throughput.
+- **Outbox publisher:** it keeps up with the API's sustainable write rate, at sub-second lag.
+- **WebSockets:** 1,000 connections are well within one replica.
+- **Failure tests:** 14 of 17 failure scenarios pass on AWS. Three were not run: the S3 outage
+  (needs an approved IAM change), and slow clients and DLQ replay, which are tested in CI only.
+- **Integrity:** two data-invariant audits hold.
+- **Limitations** (documented, not fixed): `min.insync.replicas=1` durability, non-idempotent POST
+  retries, no rate limiting, unbounded outbox growth, a burstable database class, single tasks per
+  service.
 
-1. The cache on/off experiment (`-var board_cache_enabled=false`), then read-heavy, write-heavy,
-   hot-project and multi-project runs.
-2. The api-gateway CPU, which is now a co-bottleneck at saturation.
-3. WebSocket load at 100, 500 and 1000 sockets.
-4. Failure injections: `npm run aws:demo:failures` (ECS tasks, RDS reboot, MSK broker reboot)
-   and `npm run aws:demo` (Activity, invalidator and Redis outages).
-5. A 30-minute soak.
-6. `npm run aws:invariants`.
-7. The final Terraform plan and `aws:audit`, the README results and the final report.
+## Verified résumé evidence
+
+Every number below was measured on 2026-10-17 on the AWS dev environment.
+
+- **Environment:** ECS Fargate with **one 0.25 vCPU / 0.5 GiB task per service** unless stated;
+  RDS `db.t4g.micro`; MSK 2 × `kafka.t3.small`; Valkey `cache.t4g.micro`; project-service on Xeon
+  8259CL hosts unless stated.
+- **Load:** k6 from GitHub-hosted runners through CloudFront.
+- **"VUs"** are k6 virtual users with 0–1 s think time, not simultaneous real users.
+- **"Sustained"** means it met the success criteria fixed before measuring (errors < 1 %, p95 < 500
+  ms, p99 < 1500 ms).
+
+| Claim                                                                                                                                                                                                 | Workload and qualification                                                                                  | Commit                | Evidence                                                  |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------- | --------------------------------------------------------- |
+| **158 req/s sustained** on one project-service task; **298 req/s sustained** with two (p95 485 ms, p99 700 ms, 0 errors). Peak 312 req/s                                                              | read-heavy (80 % board reads, cached), 100 / 200 VUs; horizontal scaling 2.0×; gateway saturated at 2 tasks | `0819abc`             | `tests/load/results/c-scale-out.md`                       |
+| **−22 % CPU per request, +25 % throughput** from replacing a multi-query board read with one JSON-aggregating SQL statement                                                                           | balanced, 100 VUs; controlled A/B on the same host model, same session (3 vs 2 runs)                        | `afb830e` → `4b22d57` | `tests/load/results/o-opt1-ab.md`                         |
+| Redis board cache: **4–14× fewer database tuples read**, +13 % saturated throughput; **no gain** under the balanced mix                                                                               | read-heavy and balanced ladders, cache ON vs OFF, 3 runs each                                               | `4b22d57`             | `a-cache-on.md`, `a-cache-off.md`                         |
+| Transactional outbox at **30–33 writes/s sustained: publish lag p95 0.51 s, p99 0.6 s, max backlog 19, 0 errors**                                                                                     | write-heavy, 25 VUs, 8 min × 2; arrival and publication measured in PostgreSQL per 30 s bucket              | `0819abc`             | `d-publisher-{1,2}/outbox-rates.txt`                      |
+| Outbox recovery: **300 events written during a publisher outage, all published in 4.2 s after restart**, none lost                                                                                    | failure injection (publisher scaled to 0)                                                                   | `0819abc`             | `tests/failure/results/2026-10-17-failures-publisher.txt` |
+| **1,000 concurrent open WebSocket connections on one 0.25 vCPU replica, 100 % delivery** (15,000 notifications); notify-after-commit p95 ≈ 0.5 s                                                      | 3 min hold; latency is from the writer's HTTP 201 to its own socket (one clock), not browser to browser     | `0819abc`             | `tests/load/results/e-ws-1000/`                           |
+| Reconnect storm: **1,000 simultaneous connects, 0 dropped**, connect p95 5.1 s                                                                                                                        | 2 realtime replicas; k6 without client backoff                                                              | `0819abc`             | `e-ws-storm-1000-2rep/`                                   |
+| **14 failure scenarios passed on AWS**, among them: RDS reboot (writes 503, not 500; recovered in 62 s with no restarts), MSK broker reboot (170/170 writes OK), ECS task kills (replaced in 40–50 s) | single-AZ RDS reboot, not a Multi-AZ failover; 3 more scenarios NOT RUN, listed                             | `0819abc`             | `docs/failure-testing.md`                                 |
+| **Data invariants held across 327,494 events** (no lost, unpublished or duplicated side effects, gap-free versions) after load and failures                                                           | two read-only audits (213,658 + 113,836 events, two database instances)                                     | –                     | `tests/failure/results/invariants-2026-10-17-*.txt`       |
+| **397 automated tests** (217 unit + 180 integration against real PostgreSQL, Kafka, Redis and S3 emulation) and **81 deliberate breaks**                                                              | 79 breaks verified before this session, 2 on 2026-10-17                                                     | `7168fae`             | CI run 39071494758                                        |
+
+Not claimed: two-gateway scaling (not run), sustained capacity above 1,000 WebSocket connections
+(not tested), any multi-AZ or production-scale figure, and CI speed improvements (not re-measured).
 
 ## Repository layout
 
@@ -252,12 +277,13 @@ depend on the client's view of a task take `expectedVersion` and return **409
 
 ## Testing
 
-Executed test counts per package from the CI run of `4d3ff72` (all green). Integration tests run
+Executed test counts per package from CI run 39071494758 on `7168fae` (2026-10-17, all green; the
+test steps print every vitest summary). Integration tests run
 against real PostgreSQL, Kafka, Redis and LocalStack S3 via Testcontainers:
 
 | Area                                                                                                   | Unit                         | Integration (real infrastructure) |
 | ------------------------------------------------------------------------------------------------------ | ---------------------------- | --------------------------------- |
-| project-service (HTTP → PostgreSQL, outbox, attachments, board snapshot)                               | 10                           | 74                                |
+| project-service (HTTP → PostgreSQL, outbox, attachments, board snapshot)                               | 13                           | 74                                |
 | outbox-publisher                                                                                       | 8                            | 16                                |
 | kafka (producer/consumer, retries, DLQ)                                                                | 19                           | 22                                |
 | activity-service (idempotent projection)                                                               | 4                            | 10                                |
@@ -266,14 +292,17 @@ against real PostgreSQL, Kafka, Redis and LocalStack S3 via Testcontainers:
 | storage (presigned policy, S3 behaviour)                                                               | 2                            | 5                                 |
 | system (real processes: gateway ⇄ services ⇄ DB/Kafka, dashboards vs Prometheus) + architecture guards | 23                           | 37                                |
 | web (React)                                                                                            | 54                           | —                                 |
-| api-gateway / auth / config / contracts / database / observability / runtime                           | 16 / 10 / 6 / 35 / 5 / 8 / 5 | —                                 |
-| **Total executed in CI (393)**                                                                         | **213**                      | **180**                           |
+| api-gateway / auth / config / contracts / database / observability / runtime                           | 16 / 10 / 6 / 35 / 6 / 8 / 5 | —                                 |
+| **Total executed in CI (397)**                                                                         | **217**                      | **180**                           |
 
 Plus:
 
-- **Deliberate breaks:** 79, each with a baseline per phase. Every break edits the code in
-  one exact place, and CI requires the named tests to fail (`npm run` via
-  `.github/workflows/mutations.yml`). All pass for Phases 4–9.
+- **Deliberate breaks:** 81, each with a baseline per phase. Every break edits the code in one
+  exact place, and CI requires the named tests to fail (`.github/workflows/mutations.yml`).
+  - The 79 breaks for Phases 4–9 passed in CI before this session and were not rerun on
+    2026-10-17.
+  - The two Phase-10 breaks, for the 503 mapping and the dev-login guard, were CAUGHT in CI on
+    `f1757d7`.
 - **Playwright:** 4 specs against the local Compose stack. They include Docker-level outages,
   so they don't run in CI.
 - **AWS demos and failure injections:** the `npm run aws:demo*` scripts, with results recorded
