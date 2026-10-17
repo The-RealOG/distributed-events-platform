@@ -46,7 +46,7 @@ export async function buildApp(deps: RealtimeDeps): Promise<FastifyInstance> {
   const app = Fastify({
     loggerInstance: logger,
     ...requestIdOptions(),
-  }) as unknown as FastifyInstance;
+  });
   registerRequestContext(app);
   await app.register(websocket, { options: { maxPayload: 16 * 1024 } });
 

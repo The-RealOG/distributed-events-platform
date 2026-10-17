@@ -69,7 +69,7 @@ export interface DomainEventConsumerOptions {
   /**
    * Dead-letter poison and malformed messages to this topic (ADR-019). Without it, handler
    * failures are retried by KafkaJS indefinitely and malformed messages are skipped with a log
-   * line (the Phase-3 behaviour).
+   * line.
    */
   deadLetter?: { topic?: string };
   retry?: Partial<RetryPolicy>;
@@ -82,7 +82,8 @@ export interface DomainEventConsumerOptions {
  *
  * Offsets: KafkaJS auto-commit. An offset is marked consumed only after `handler` resolves,
  * and committed after each batch. A crash between handling and commit redelivers the
- * message: processing is at-least-once and duplicates are expected (idempotency is Phase 5).
+ * message: processing is at-least-once, so handlers must be idempotent (processEventOnce in
+ * @dpp/database).
  *
  * Malformed messages (bad JSON, bad envelope, unsupported schemaVersion, unknown type, bad
  * payload) never block their partition: with a DLQ they are dead-lettered, without one they are

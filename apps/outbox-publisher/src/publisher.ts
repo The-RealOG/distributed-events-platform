@@ -140,6 +140,7 @@ export class OutboxPublisher {
         delayMs = result.claimed > 0 ? 0 : this.#o.pollIntervalMs;
       }
       if (delayMs > 0) {
+        // stop() aborts this wait; the rejection is how shutdown interrupts it, not an error.
         await sleep(delayMs, undefined, { signal: this.#wake.signal }).catch(() => undefined);
       }
     }

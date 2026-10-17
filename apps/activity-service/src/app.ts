@@ -28,7 +28,7 @@ export function buildApp(
   const app = Fastify({
     loggerInstance: logger,
     ...requestIdOptions(),
-  }) as unknown as FastifyInstance;
+  });
   registerRequestContext(app);
   closeConnectionsWhenDraining(app);
   if (metrics) {

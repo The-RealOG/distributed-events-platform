@@ -44,11 +44,11 @@ export interface DomainEventProducerOptions {
  *   replicas; with one local broker, that one). Anything else rejects with PublishError.
  * - KafkaJS retries transient send failures itself (see DEFAULT_RETRY). A retry after a lost
  *   acknowledgement can write the message twice, so delivery is at-least-once and consumers
- *   must be idempotent (Phase 5). The idempotent producer is not enabled: KafkaJS documents it
+ *   must be idempotent. The idempotent producer is not enabled: KafkaJS documents it
  *   as experimental.
  * - maxInFlightRequests=1, so a retried batch cannot overtake a later one; per-key order
  *   within a partition is preserved across retries.
- * - No application-level retries: the caller (Phase 4: the outbox publisher) decides.
+ * - No application-level retries: the caller (the outbox publisher) decides.
  */
 export class DomainEventProducer {
   readonly #producer: Producer;
