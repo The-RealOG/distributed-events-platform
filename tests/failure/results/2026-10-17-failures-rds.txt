@@ -3,15 +3,6 @@ Failure injections against https://dc7i81hchheli.cloudfront.net
 
 ▶ RDS reboot (single-AZ: closest practical interruption; no managed failover exists here)
   RDS reboot requested
-file:///Users/chibuezekingsleyanyachebelu/Projects/distributed-events-platform/scripts/aws/demo-failures.mjs:295
-      for (let i = 0; i < 400 && !writer.stop; i++) {
-                                  ^
+[32mPASS[0m RDS reboot (single-AZ: closest practical interruption; no managed failover exists here) — reads failed 9/43 over 9 s; writes failed 8/41 with 503 DEPENDENCY_UNAVAILABLE; first successful write 62 s after the reboot request (0 s after RDS reported available); ECS tasks restarted: none (pools reconnected by themselves)
 
-ReferenceError: Cannot access 'writer' before initialization
-    at file:///Users/chibuezekingsleyanyachebelu/Projects/distributed-events-platform/scripts/aws/demo-failures.mjs:295:35
-    at file:///Users/chibuezekingsleyanyachebelu/Projects/distributed-events-platform/scripts/aws/demo-failures.mjs:300:7
-    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
-    at async demo (file:///Users/chibuezekingsleyanyachebelu/Projects/distributed-events-platform/scripts/aws/demo-failures.mjs:118:5)
-    at async file:///Users/chibuezekingsleyanyachebelu/Projects/distributed-events-platform/scripts/aws/demo-failures.mjs:266:1
-
-Node.js v24.11.0
+1/1 passed
