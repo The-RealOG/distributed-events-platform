@@ -83,7 +83,9 @@ def run_levels(d):
                 # CPU cost per request: mean utilisation × the task's vCPU over the level's request
                 # rate. Comparable across load levels; across runs only on the same host CPU model.
                 avg = cw('AWS/ECS', 'CPUUtilization', dims, first, last, 'Average')
-                vcpu = TASK_VCPU.get(svc, 0.25)
+                # Service-level CPUUtilization is the mean over its tasks: total = mean × tasks.
+                tasks_m = re.search(rf'^service {svc}: running (\d+)/', meta, re.M)
+                vcpu = TASK_VCPU.get(svc, 0.25) * (int(tasks_m.group(1)) if tasks_m else 1)
                 got[f'{svc} CPU-ms/req'] = (statistics.mean(avg) / 100 * vcpu * 1000 / row['req/s']) if avg and row['req/s'] else None
             pts = cw('AWS/RDS', 'CPUUtilization', {'DBInstanceIdentifier': cfg['rds']['identifier']}, first, last)
             got['RDS CPU %'] = max(pts) if pts else None
