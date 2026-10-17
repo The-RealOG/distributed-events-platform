@@ -16,3 +16,4 @@ tests/playwright-report/
 *.tfstate.*
 *.tfplan
 infrastructure/terraform/**/local.auto.tfvars
+__pycache__/
