@@ -1,0 +1,13 @@
+{
+ "at": "2026-10-17T07:26:20.249Z",
+ "xact_commit": 302195,
+ "xact_rollback": 2,
+ "tup_returned": 11015329,
+ "tup_fetched": 1158938,
+ "tup_inserted": 9707,
+ "tup_updated": 2764,
+ "tup_deleted": 70,
+ "blks_read": 406,
+ "blks_hit": 2816638,
+ "numbackends": 2
+}

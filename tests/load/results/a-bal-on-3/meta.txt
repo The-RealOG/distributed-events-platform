@@ -1,0 +1,10 @@
+label=a-bal-on-3 script=http scenario=balanced
+k6_env=LADDER=50,100,200 STEP=3m WARMUP=1m TEST_USER_COUNT=100 WORKSPACE_COUNT=10 PROJECT_COUNT=20 SEED_TASKS=20
+deployed_sha=4b22d5714d0cafefa1f34ff737e14d78d86a1ac1
+harness_sha=763147a
+service project-service: running 1/1, 256 CPU units, 512 MiB, dpp-dev-project-service:20 CACHE_ENABLED=true
+service api-gateway: running 1/1, 256 CPU units, 512 MiB, dpp-dev-api-gateway:19
+service outbox-publisher: running 1/1, 256 CPU units, 512 MiB, dpp-dev-outbox-publisher:18
+service activity-service: running 1/1, 256 CPU units, 512 MiB, dpp-dev-activity-service:12
+service realtime-service: running 1/1, 256 CPU units, 512 MiB, dpp-dev-realtime-service:7
+service cache-invalidator: running 1/1, 256 CPU units, 512 MiB, dpp-dev-cache-invalidator:12
