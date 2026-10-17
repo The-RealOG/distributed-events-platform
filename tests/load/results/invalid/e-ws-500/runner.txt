@@ -1,3 +1,0 @@
-runner: 2 vCPU, 7 GiB; 2026-10-17T18:45:14Z
-location: azure=centralus vm=Standard_D2ds_v7 cloudfront_pop=ORD58-P17
-exit=0

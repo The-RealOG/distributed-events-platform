@@ -1,6 +1,0 @@
-
-connections 1000 on 20 project(s); subscribed 100.00 %
-events published 300 (2/s); notifications received 15000 of ~15000 expected (100.00 %)
-notification after HTTP 201 (ms): p50 236  p95 502  p99 551  max 581  (n=300)
-notification after request sent (ms): p50 332  p95 617  p99 646
-server-initiated closes 0

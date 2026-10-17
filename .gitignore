@@ -18,3 +18,8 @@ tests/playwright-report/
 infrastructure/terraform/**/local.auto.tfvars
 __pycache__/
 infrastructure/terraform/**/drift.txt
+
+# Local-only notes and raw benchmark/failure evidence (kept on disk, not in the repository)
+.local-notes/
+tests/load/results/
+tests/failure/results/

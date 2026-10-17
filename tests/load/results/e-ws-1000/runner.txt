@@ -1,3 +1,0 @@
-runner: 2 vCPU, 7 GiB; 2026-10-17T19:32:37Z
-location: azure=westus vm=Standard_D2ads_v6 cloudfront_pop=SFO53-P4
-exit=0

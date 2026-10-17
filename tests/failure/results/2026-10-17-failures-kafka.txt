@@ -1,8 +1,0 @@
-[36m▶ AWS account 904233094657 as mycli in us-east-2 (env: dev)[0m
-Failure injections against https://dc7i81hchheli.cloudfront.net
-
-▶ MSK broker reboot (1 of 2): writes and event flow continue through leader failover
-  broker 1 rebooting
-[32mPASS[0m MSK broker reboot (1 of 2): writes and event flow continue through leader failover — cluster back to ACTIVE after 194 s; 170/170 writes OK during the reboot; publisher 'publish failed' log lines: 0; the last write reached activity 0 s after the cluster was ACTIVE
-
-1/1 passed

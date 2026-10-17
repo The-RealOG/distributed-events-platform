@@ -1,9 +1,0 @@
-[36m▶ AWS account 904233094657 as mycli in us-east-2 (env: dev)[0m
-Failure injections against https://dc7i81hchheli.cloudfront.net
-
-▶ ECS task termination: ECS restores desired count; clients see a bounded error window
-[32mPASS[0m ECS task termination: api-gateway — replacement RUNNING 49 s after stop-task; probe GET /tasks/:id: 33/61 failed (503) over 27 s
-[32mPASS[0m ECS task termination: project-service — replacement RUNNING 50 s after stop-task; probe GET /tasks/:id: 44/61 failed (503) over 38 s
-[32mPASS[0m ECS task termination: activity-service — replacement RUNNING 40 s after stop-task; probe GET /tasks/:id: 0/74 failed (none) over 0 s; a new event reached activity 12 s after the replacement
-
-3/3 passed

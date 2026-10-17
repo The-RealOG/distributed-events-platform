@@ -26,8 +26,8 @@ const writesOk = new Counter('writes_ok');
 // Board latency split by what the server did: HIT (warm) vs MISS (cold: PostgreSQL + write-back).
 const boardByCache = new Trend('board_ms_by_cache', true);
 
-// Success criteria, fixed BEFORE any run (docs/performance.md#success-criteria). A run that
-// breaks them is reported as such; they are not tuned afterwards.
+// Success criteria, fixed BEFORE any run: errors < 1 %, p95 < 500 ms, p99 < 1500 ms, every
+// operation p95 < 1000 ms. A run that breaks them is reported as such; they are not tuned afterwards.
 const thresholds = {
   http_req_failed: ['rate<0.01'],
   'http_req_duration{kind:api}': ['p(95)<500', 'p(99)<1500'],

@@ -1,3 +1,0 @@
-runner: 2 vCPU, 7 GiB; 2026-10-17T09:48:41Z
-location: azure=eastus2 vm=Standard_D2ads_v5 cloudfront_pop=IAD55-P10
-exit=99

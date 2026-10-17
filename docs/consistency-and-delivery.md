@@ -9,10 +9,10 @@ one precisely stated guarantee.
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | Tasks, columns, comments, memberships (PostgreSQL) | **Strong, transactional.** A write is visible to every later read once its HTTP response is sent.                                                                                              | Single PostgreSQL primary; one transaction per command; optimistic concurrency on `version` (409 on a stale `expectedVersion`) (ADR-001, ADR-008)                          | none                                                                                                                  |
 | Domain change + its event                          | **Atomic.** Both commit or neither does.                                                                                                                                                       | Transactional outbox: the event row is inserted in the same transaction (ADR-011)                                                                                          | none                                                                                                                  |
-| Event publication (outbox → Kafka)                 | **Eventual, at least once, in per-project order.** Every committed event is published; Kafka-side durability of an acknowledged event is limited by `min.insync.replicas=1` (see Limitations). | Outbox publisher polls every 500 ms, sends with `acks=-1`, marks published after the ack; key = projectId                                                                  | poll interval + publish; see docs/performance.md                                                                      |
+| Event publication (outbox → Kafka)                 | **Eventual, at least once, in per-project order.** Every committed event is published; Kafka-side durability of an acknowledged event is limited by `min.insync.replicas=1` (see Limitations). | Outbox publisher polls every 500 ms, sends with `acks=-1`, marks published after the ack; key = projectId                                                                  | poll interval (500 ms) + publish; about 0.5 s at p95 when measured                                                    |
 | Activity feed (`activity_events`)                  | **Eventually consistent projection**, never wrong, never duplicated.                                                                                                                           | Kafka consumer; side effect + `processed_events` marker in one transaction (ADR-013, ADR-014)                                                                              | consumer lag                                                                                                          |
 | Board cache (Valkey)                               | **Disposable projection, eventually invalidated.** Never authoritative; never served without an authorization check.                                                                           | Cache-aside; Kafka-driven invalidation with generation-guarded write-back; 300 s TTL as a backstop; the writer's own tab reads fresh for 10 s (read-your-writes) (ADR-015) | invalidation lag (AWS demo: a reconnecting client saw a stale board once, then the change 351 ms after resubscribing) |
-| Realtime notifications                             | **Best effort, ephemeral.** Hints to refetch, not state.                                                                                                                                       | WebSocket push from committed events; client invalidates and refetches over HTTP on every notification and every (re)subscription (ADR-016/018)                            | notification after writer's 201: see docs/performance.md                                                              |
+| Realtime notifications                             | **Best effort, ephemeral.** Hints to refetch, not state.                                                                                                                                       | WebSocket push from committed events; client invalidates and refetches over HTTP on every notification and every (re)subscription (ADR-016/018)                            | notification after the writer's 201: about 0.5 s at p95 when measured                                                 |
 | Attachments (PostgreSQL row + S3 object)           | **Coordinated, not atomic.** Users only ever see `ready` rows whose object was verified by HEAD.                                                                                               | pending → ready → deleted; delete is row-first; a sweep converges leftovers (ADR-021/022)                                                                                  | ≤ one sweep interval (10 min) for an unreachable leftover object                                                      |
 
 ## Delivery semantics
@@ -31,22 +31,6 @@ one precisely stated guarantee.
 **There is no end-to-end exactly-once.** What the system guarantees is: no committed change is
 lost from PostgreSQL, no rolled-back change is ever announced, durable side effects happen once per
 consumer, and every read model converges to PostgreSQL, within the Kafka durability limit below.
-
-## Measured (AWS dev, 2026-10-17; docs/performance.md, docs/failure-testing.md)
-
-- **Commit → published to Kafka.** Lag p50 0.27 s, p95 0.51 s, p99 0.6 s at the sustainable write
-  rate (about 30–33 writes/s). It is bounded by the 500 ms outbox poll.
-- **Commit → WebSocket notification on the writer's own socket.** p95 about 0.5 s, the same at
-  100–1,000 connections.
-- **Convergence of the read models.** Activity caught up 1.1 s after a change and the board cache
-  was fresh 1.1 s after one. After outages, activity caught up 11.7 s after restart (no
-  duplicates), the cache converged 6.4 s after the invalidator restarted, and caching resumed
-  8.4 s after a Redis reboot.
-- **Invariants audits.** One ran after all of the day's load on the first database (213,658
-  events). A second ran after every failure injection (including the RDS reboot, the MSK broker
-  reboot and the ECS task kills) and the soak, on the replacement database (113,836 events). Both
-  passed: no lost or stale events, gap-free task versions, no duplicate activity rows, and
-  side-effect markers 1:1 (`tests/failure/results/invariants-2026-10-17-*.txt`).
 
 ## Limitations (verified, not fixed)
 
@@ -68,7 +52,7 @@ consumer, and every read model converges to PostgreSQL, within the Kafka durabil
   after its 5 s connect timeout (503). There is no load shedding earlier.
 - **Outbox growth.** Published outbox rows are never deleted, so the table only grows. In the
   30-minute soak, periodic 503 bursts appeared after about 22 minutes. They coincided with
-  auto-ANALYZE of `outbox_events` and with slow new TLS connections to RDS (docs/performance.md).
+  auto-ANALYZE of `outbox_events` and with slow new TLS connections to RDS.
   A retention job (delete published rows after Kafka's retention) is the next step. Not done in
   Phase 10.
 - **No rate limiting.** Neither the gateway, the ALB nor CloudFront limits request rates per client.

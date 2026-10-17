@@ -7,8 +7,7 @@
 > (ADR-015), and the Realtime Service notifies connected browsers over WebSockets (ADR-016/017).
 > Poison events go to a DLQ (ADR-019). Attachment bytes go browser ⇄ S3 directly (ADR-021).
 > Every service exposes Prometheus metrics (ADR-020). Consistency and delivery guarantees:
-> [consistency-and-delivery.md](consistency-and-delivery.md); failure behaviour:
-> [failure-testing.md](failure-testing.md); measurements: [performance.md](performance.md).
+> [consistency-and-delivery.md](consistency-and-delivery.md).
 
 ## Topology
 
@@ -573,6 +572,20 @@ its session timed out).
 
 ## Failure behaviour
 
-Moved to [failure-testing.md](failure-testing.md) (the tested failure matrix with injection
-method, observed behaviour and recovery for every dependency) and
-[consistency-and-delivery.md](consistency-and-delivery.md) (what each guarantee is).
+Each dependency fails independently, and only PostgreSQL is in the write path. The guarantees
+are in [consistency-and-delivery.md](consistency-and-delivery.md). The behaviour below is covered
+by integration tests and was also exercised on the AWS environment with the `npm run aws:demo*`
+scripts.
+
+| Dependency down                              | Effect                                                                                                  |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| PostgreSQL (restart/reboot)                  | requests fail fast with **503 DEPENDENCY_UNAVAILABLE**, nothing is partially committed, pools reconnect |
+| Kafka / outbox publisher                     | writes keep succeeding; events wait in the outbox and are published in order on recovery                |
+| Kafka broker (1 of 2)                        | leader failover; writes and publication continue                                                        |
+| Activity Service                             | activity feed is stale; it catches up from committed offsets without duplicates                         |
+| cache-invalidator                            | boards may be stale (bounded by the 300 s TTL); they converge on restart                                |
+| Redis                                        | board reads fall back to PostgreSQL; writes are unaffected; caching resumes on its own                  |
+| Poison event                                 | dead-lettered after classification (no retries for permanent errors); the consumer moves on             |
+| realtime replica / client disconnect         | client reconnects and refetches; notifications are not replayed                                         |
+| S3                                           | attachment endpoints return 503; task CRUD is unaffected                                                |
+| A single service task (one task per service) | ECS replaces it in about a minute; requests to that service fail with 503 until it is back              |

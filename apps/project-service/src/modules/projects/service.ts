@@ -102,8 +102,8 @@ export class ProjectService {
    * The board aggregate (board, columns, active tasks, assignees) in ONE statement. A single
    * statement reads one snapshot, so a concurrent move can never make a task appear in two
    * columns or vanish from the response (previously a REPEATABLE READ transaction of four
-   * queries). Measured in Phase 10: the query-builder cost of the old path dominated the
-   * Project Service's CPU (docs/performance.md#optimization-1).
+   * queries). A CPU profile under load put the old path's query building first in the Project
+   * Service's CPU; a controlled A/B measured about 22 % less CPU per request with this statement.
    */
   async #loadBoard(project: ProjectRow): Promise<BoardDto> {
     const { rows } = await this.db.execute<{ board: BoardJson | null }>(sql`

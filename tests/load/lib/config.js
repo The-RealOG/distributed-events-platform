@@ -9,7 +9,7 @@ export const SCENARIO = env('SCENARIO', 'balanced');
 
 /**
  * Operation mixes (weights, %). Reads and writes are the operations a project-management user
- * performs; the actual mix per scenario is recorded in docs/performance.md.
+ * performs; the weights below are the whole definition of each scenario.
  */
 export const MIXES = {
   // Board/project reads only: what the shared cache serves.

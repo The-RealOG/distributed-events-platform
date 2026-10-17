@@ -1,2 +1,0 @@
-replica 7346e20d75624fd88dcb4c29c5a56257: realtime_auth_failures_total{reason="timeout",service="realtime-service"} 311 realtime_hub_events_total{result="broadcast",service="realtime-service"} 49125 
-replica ff60bbc8877043c0b0469e79af974976: realtime_hub_events_total{result="broadcast",service="realtime-service"} 3887 
