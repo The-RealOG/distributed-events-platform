@@ -80,7 +80,8 @@ jobs:
             turbo-
       - run: npm ci
       # Unit and component tests plus the architecture guards (tests/architecture, never cached).
-      - run: npx turbo run test build
+      # Full test output (not errors-only) so every run records each package's executed test count.
+      - run: npx turbo run test build --output-logs=full
 
   security:
     runs-on: ubuntu-latest
@@ -128,4 +129,4 @@ jobs:
             turbo-integration-${{ matrix.shard }}-
             turbo-
       - run: npm ci
-      - run: npx turbo run test:integration ${{ matrix.filters }} --concurrency=1
+      - run: npx turbo run test:integration ${{ matrix.filters }} --concurrency=1 --output-logs=full
