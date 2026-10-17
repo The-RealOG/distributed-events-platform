@@ -32,6 +32,16 @@ variable "github_oidc_subject_repository" {
   description = "repository part of the GitHub OIDC sub claim allowed to assume the deploy role (main branch only)"
 }
 
+variable "github_oidc_provider_arn" {
+  type        = string
+  default     = ""
+  description = <<-EOT
+    ARN of an existing GitHub Actions OIDC provider (token.actions.githubusercontent.com) to reuse.
+    An account holds one provider per URL, so set this in local.auto.tfvars when another stack
+    already owns it. Empty: this environment creates (and on destroy deletes) its own.
+  EOT
+}
+
 # The only value that must be provided by the developer (kept out of Git in local.auto.tfvars).
 variable "budget_alert_email" {
   type        = string

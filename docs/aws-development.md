@@ -58,11 +58,15 @@ carrying a secret header that this distribution adds.
 - `gh` (GitHub CLI), logged in to the account that owns the repository.
 - Node.js 24 for unit tests and the smoke test. **Docker is not needed.**
 
-The only value you provide is the budget alert email, in the untracked file
+The only value you must provide is the budget alert email, in the untracked file
 `infrastructure/terraform/environments/dev/local.auto.tfvars`:
 
 ```hcl
 budget_alert_email = "you@example.com"
+# Only if the account already has a GitHub OIDC provider owned by another stack
+# (aws iam list-open-id-connect-providers). An account holds one per URL, so creating a second
+# fails; reusing it by ARN (rather than importing it) keeps aws:destroy from deleting it.
+# github_oidc_provider_arn = "arn:aws:iam::<account>:oidc-provider/token.actions.githubusercontent.com"
 ```
 
 ## Rebuild everything in one command

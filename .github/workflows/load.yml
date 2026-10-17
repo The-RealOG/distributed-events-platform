@@ -58,6 +58,12 @@ jobs:
           args=()
           for kv in $EXTRA; do args+=(-e "$kv"); done
           echo "runner: $(nproc) vCPU, $(free -g | awk '/Mem:/{print $2}') GiB; $(date -u +%FT%TZ)" | tee out/runner.txt
+          # GitHub-hosted runners are Azure VMs in an uncontrolled region: record it (link-local
+          # instance metadata) and the CloudFront edge serving this runner, so runs from different
+          # locations are never compared as like for like.
+          imds() { curl -s --max-time 2 -H Metadata:true "http://169.254.169.254/metadata/instance/compute/$1?api-version=2021-02-01&format=text" || echo unknown; }
+          pop=$(curl -s -o /dev/null -D - --max-time 5 "$BASE_URL/" | awk -F': ' 'tolower($1)=="x-amz-cf-pop"{print $2}' | tr -d '\r')
+          echo "location: azure=$(imds location) vm=$(imds vmSize) cloudfront_pop=${pop:-unknown}" | tee -a out/runner.txt
           k6 run --quiet -e BASE_URL="$BASE_URL" -e SCENARIO="$SCENARIO" -e RUN_ID="$LABEL" \
             -e SUMMARY_FILE=out/summary.json "${args[@]}" "tests/load/${SCRIPT}.js" 2>&1 | tee out/stdout.txt
           echo "exit=${PIPESTATUS[0]}" | tee -a out/runner.txt

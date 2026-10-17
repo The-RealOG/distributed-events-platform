@@ -18,6 +18,7 @@ variable "cluster_arn" { type = string }
 variable "ssm_parameter_arns" { type = list(string) }
 variable "github_oidc_subject_repository" { type = string } # as it appears in the OIDC sub claim
 variable "github_branch" { type = string }
+variable "github_oidc_provider_arn" { type = string } # "" = create the provider here
 
 data "aws_iam_policy_document" "ecs_tasks_assume" {
   statement {
@@ -205,9 +206,16 @@ resource "aws_iam_role_policy" "msk_tools" {
 }
 
 # ---- GitHub Actions (OIDC) ----
+# IAM allows one provider per URL per account. When another stack already owns it, reuse it by
+# ARN: importing it here would let aws:destroy delete it from under that stack.
 resource "aws_iam_openid_connect_provider" "github" {
+  count          = var.github_oidc_provider_arn == "" ? 1 : 0
   url            = "https://token.actions.githubusercontent.com"
   client_id_list = ["sts.amazonaws.com"]
+}
+
+locals {
+  github_oidc_provider_arn = var.github_oidc_provider_arn != "" ? var.github_oidc_provider_arn : aws_iam_openid_connect_provider.github[0].arn
 }
 
 data "aws_iam_policy_document" "github_assume" {
@@ -215,7 +223,7 @@ data "aws_iam_policy_document" "github_assume" {
     actions = ["sts:AssumeRoleWithWebIdentity"]
     principals {
       type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.github.arn]
+      identifiers = [local.github_oidc_provider_arn]
     }
     condition {
       test     = "StringEquals"

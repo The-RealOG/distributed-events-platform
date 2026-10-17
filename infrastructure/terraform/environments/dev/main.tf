@@ -155,4 +155,5 @@ module "iam" {
   ssm_parameter_arns             = [aws_ssm_parameter.image_tag.arn, aws_ssm_parameter.deploy_config.arn]
   github_oidc_subject_repository = var.github_oidc_subject_repository
   github_branch                  = "main"
+  github_oidc_provider_arn       = var.github_oidc_provider_arn
 }
