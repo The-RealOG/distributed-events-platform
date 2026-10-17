@@ -305,3 +305,37 @@ probe's project × the probe's events.
   realtime integration tests (backpressure), which can control a client's read rate.
 - **Load-generator caveat.** The first WebSocket runs were invalid: the harness busy-waited and
   starved k6 (bug ledger #28). They are kept under `results/invalid/`.
+
+### Soak: 30 minutes, balanced at 40 VUs (`results/f-soak-http/`)
+
+The 40-VU level is moderate, below the about-50-VU saturation of balanced. The load workflow
+allows one run at a time, so the WebSocket half (200 connections held for 30 min,
+`results/f-soak-ws/`) ran right after it, not alongside.
+
+- **Against the fixed criteria: PASS.**
+  - Overall p50 / p95 / p99: 32 / 160 / 476 ms. Errors 0.26 % (134 × 503, plus 724 expected 409s
+    counted separately). 20.0 successful writes/s.
+  - Outbox: 35,561 events, 0 pending at the end. Each consumer processed all 35,561 with 0 retries
+    and 0 dead-lettered.
+- **Flat, so no leak.** Memory per service is flat after warm-up (project-service 27–28 %,
+  api-gateway 18 %, realtime 18–19 %). RDS connections stay at 12–13. Throughput held at 77–80
+  req/s for the first 21 minutes.
+- **An emerging periodic degradation (sustained, not a one-off spike).** From about 22 minutes in,
+  every second minute (21:10, 21:12, 21:14, 21:16, 21:18Z) shows:
+  - mean ALB target response 77–148 ms (about 22 ms otherwise);
+  - 19–47 × 503 (pool acquisition timeouts);
+  - throughput dips to 63–71 req/s;
+  - project-service CPU _falling_ to 55–59 % while RDS CPU rises: requests waiting on the
+    database.
+- **What the database log shows for those minutes:**
+  - `automatic analyze of table "outbox_events"` at 21:14:15, 21:16:15 and 21:18:15;
+  - `could not accept SSL connection: EOF detected` from the app subnet, meaning new connections
+    took longer than the pool's 5 s connect timeout. Checkpoints (5 min, spread over 270 s) do not
+    match the period.
+- **Interpretation (correlation, not proven causation).**
+  - Published outbox rows are never deleted, so `outbox_events` only grows and its maintenance
+    keeps getting heavier on a `db.t4g.micro`.
+  - Under a burst, the pool re-opens connections (pg-pool idle timeout 10 s), and each TLS +
+    SCRAM handshake competes for the same small instance.
+  - Next steps, not done in Phase 10: outbox retention, pool idle and minimum settings, and a
+    longer soak to confirm the trend.

@@ -42,8 +42,11 @@ consumer, and every read model converges to PostgreSQL, within the Kafka durabil
   was fresh 1.1 s after one. After outages, activity caught up 11.7 s after restart (no
   duplicates), the cache converged 6.4 s after the invalidator restarted, and caching resumed
   8.4 s after a Redis reboot.
-- **Invariants audit after every load and failure experiment of the day.** No lost or unpublished
-  events, gap-free task versions, no duplicate activity rows, and markers and side effects 1:1.
+- **Invariants audits.** One ran after all of the day's load on the first database (213,658
+  events). A second ran after every failure injection (including the RDS reboot, the MSK broker
+  reboot and the ECS task kills) and the soak, on the replacement database (113,836 events). Both
+  passed: no lost or stale events, gap-free task versions, no duplicate activity rows, and
+  side-effect markers 1:1 (`tests/failure/results/invariants-2026-10-17-*.txt`).
 
 ## Limitations (verified, not fixed)
 
@@ -63,6 +66,11 @@ consumer, and every read model converges to PostgreSQL, within the Kafka durabil
   returns 500, and its outcome is unknown to the client (it may have committed).
 - **Overload.** At saturation, requests queue for project-service's 10-connection pool and fail
   after its 5 s connect timeout (503). There is no load shedding earlier.
+- **Outbox growth.** Published outbox rows are never deleted, so the table only grows. In the
+  30-minute soak, periodic 503 bursts appeared after about 22 minutes. They coincided with
+  auto-ANALYZE of `outbox_events` and with slow new TLS connections to RDS (docs/performance.md).
+  A retention job (delete published rows after Kafka's retention) is the next step. Not done in
+  Phase 10.
 - **No rate limiting.** Neither the gateway, the ALB nor CloudFront limits request rates per client.
   One client can saturate the service.
 - **Realtime.** Delivery is best effort (no replay). Clients recover by refetching on (re)subscribe,

@@ -1,0 +1,13 @@
+[36m▶ AWS account 904233094657 as mycli in us-east-2 (env: dev)[0m
+Connection to localhost port 15432 [tcp/*] succeeded!
+[32mPASS[0m no committed event left unpublished for over a minute (no lost events) — 113836 events; 1 unpublished now (0 claimed), 0 older than 1 min
+[32mPASS[0m every task version is explained by exactly one event per version (1..n, no gaps, no repeats) — 28603 tasks; 0 without events; 0 version ≠ last event; 0 with gaps/repeats
+[32mPASS[0m no duplicate activity rows — 113836 rows, 113836 distinct events
+[32mPASS[0m every event published over a minute ago has its activity row (activity caught up) — 0 missing
+[32mPASS[0m processed_events and activity rows correspond 1:1 (side effect and marker committed together) — 113836 markers; 0 rows without marker; 0 markers without row
+NOTE activity rows for tool-injected events (kafka-tools demos, no outbox row): 1
+[32mPASS[0m no assignments on missing tasks — 0
+[32mPASS[0m attachments: every ready row was finalized — 3 rows, 1 ready; 0 stale pending and 0 object deletes awaiting the sweep (converged by the sweep, ADR-022)
+
+all invariants hold
+scripts/aws/invariants.sh: line 16: 72482 Terminated: 15          DB_TUNNEL_PORT="$port" "$(dirname "$0")/db-tunnel.sh" > /dev/null 2>&1
