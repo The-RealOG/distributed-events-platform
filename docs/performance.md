@@ -124,9 +124,150 @@ Cells: median across runs (min–max); latency is the median of each run's own k
 - **Visibility:** the last backlog event appeared in the activity feed 39 s after the scale-up command. That figure includes the ECS task start.
 - **Headroom:** about 55 events/s is the single-stream publisher's ceiling (one send in flight, `acks=-1`). That is roughly twice the API's peak write rate before optimization and about the same as after it (57.9 writes/s at 250 VUs). The publisher still kept up with 0 pending in both runs, but its headroom is now small; see the handoff list.
 
-## Not yet measured (next session)
+## Phase 10 session, 2026-10-17
 
-Cache on vs off (`board_cache_enabled=false`, plan prepared), read-heavy, write-heavy, hot-project
-and multi-project workloads, WebSocket load (100/500/1000 sockets with the one-clock probe),
-the remaining failure injections (`npm run aws:demo:failures`: tasks, rds, kafka; `npm run
-aws:demo`: activity, invalidator, Redis), a 30-minute soak and the post-chaos invariant audit.
+### Environment and method (applies to every result below)
+
+- **AWS us-east-2, dev**, as in the September runs: one Fargate task per service, each **0.25 vCPU /
+  0.5 GiB**; RDS PostgreSQL 17 `db.t4g.micro`; MSK 2 × `kafka.t3.small`; Valkey `cache.t4g.micro`.
+- **Deployed code:**
+  - Experiment A and the Optimization 1 A/B: `4b22d57`.
+  - From 14:40Z: `0819abc`. It differs from `4b22d57` only by the 503 mapping fix (bug ledger #27),
+    which is not on the request hot path.
+- **Host CPU** (recorded per task in each run's `meta.txt`): Xeon Platinum 8259CL for every run
+  below, unless stated otherwise. Comparisons are made only within one host model (bug ledger #25).
+- **Load generator:** k6 1.3.0 on GitHub-hosted runners (2 vCPU, 7 GiB). Their Azure region cannot
+  be controlled, so each run records it in `runner.txt` (eastus, eastus2, centralus, northcentralus,
+  southcentralus, westus, westus2, westus3 occurred). Throughput at saturation is server-bound.
+  Latency comparisons across runs carry that caveat.
+- **Ladder:** 1 min warm-up at the lowest level, excluded from results. Then 3 min per level, with
+  100 users / 10 workspaces / 20 projects / 20 seed tasks unless stated.
+- **Repeats and cells:** 3 runs per configuration unless stated. Cells are the median across runs
+  (min–max). Latency is the median of each run's own k6 percentile, never a pooled percentile.
+- **CPU-ms/request:** mean CPU over the level's full minutes × vCPU × tasks ÷ req/s
+  (`scripts/load/compare.py`).
+- **Database work:** `pg_stat_database` deltas (`pgstats.sh`). Commits approximate statements.
+- **Database storage burst:** a `db.t4g.micro` has burstable EBS throughput.
+  - About 3.5 h of sustained benchmark writes emptied it (`EBSByteBalance%` 0 at 13:00Z). Commits
+    then exceeded 15 s and requests failed. The affected runs are in `results/invalid/`.
+  - RDS was replaced with the same class, and every later run records the balance before starting
+    (99–100 % for all runs below). A real deployment needs a non-burstable class or provisioned
+    throughput for sustained writes.
+
+### Experiment A: Redis board cache ON vs OFF (`results/a-cache-on.md`, `results/a-cache-off.md`)
+
+Only `CACHE_ENABLED` changed: one task-definition revision, the same image and the same host
+model. With the cache off, board reads take the same code path as a cache miss.
+
+| Read-heavy (80 % board reads, no writes) | Cache ON        | Cache OFF       | Difference |
+| ---------------------------------------- | --------------- | --------------- | ---------- |
+| req/s at 100 VUs                         | 159 (153–167)   | 149 (147–153)   | −6 %       |
+| req/s at 200 VUs (saturated)             | 163 (162–163)   | 142 (141–143)   | −13 %      |
+| p50 / p95 / p99 at 100 VUs               | 105 / 450 / 704 | 141 / 509 / 769 | slower     |
+| project-service CPU-ms/request, 200 VUs  | 1.5             | 1.8             | +20 %      |
+| RDS CPU (per-minute max)                 | 8–11 %          | 15–16 %         | +6 pts     |
+| DB tuples returned/s (whole run)         | 2.4k–8.0k       | 30k–39k         | 4–14×      |
+| DB commits/s (whole run)                 | 125–135         | 190–201         | +50 %      |
+
+| Balanced (70/30)                        | Cache ON         | Cache OFF        | Difference |
+| --------------------------------------- | ---------------- | ---------------- | ---------- |
+| req/s at 50 / 100 / 200 VUs             | 90 / 92 / 76     | 91 / 94 / 77     | none       |
+| p95 at 50 VUs                           | 407 (381–416)    | 305 (298–324)    | OFF lower  |
+| p95 at 100 VUs                          | 1265 (1256–1326) | 1198 (1140–1278) | none       |
+| project-service CPU-ms/request, 100 VUs | 2.7              | 2.5              | none       |
+| server hit rate at 50 / 100 VUs         | 57 % / 42 %      | –                |            |
+| DB tuples returned/s (whole run)        | 18k–20k          | 27k–32k          | 1.5×       |
+
+**Interpretation:**
+
+- The cache reduces database work substantially, by 4–14× in tuples on read-heavy.
+- It adds only modest throughput on read-heavy (+13 % at saturation) and none on balanced. The
+  bottleneck is project-service CPU in both configurations, and the database was never limiting
+  (RDS ≤ 22 %).
+- Under balanced load, about 20 writes/s spread over 20 boards invalidate each board roughly once a
+  second. The cache path's own CPU (Redis round trips, serialization, generation checks and
+  write-back) then costs about what it saves.
+- **At this scale, Redis is justified by database offload and headroom, not by latency or
+  throughput.**
+- At saturation the Redis client also timed out on a starved event loop: 214 of 219 errors in one
+  run, while Redis engine CPU stayed ≤ 1.6 %. Each timeout falls back to PostgreSQL, so it adds
+  work exactly when capacity is shortest.
+
+### Experiment B: workload characterization
+
+| At 100 VUs (median of runs)     | req/s | p95    | errors | hit rate | CPU-ms/req | evidence          |
+| ------------------------------- | ----- | ------ | ------ | -------- | ---------- | ----------------- |
+| read-heavy                      | 159   | 450 ms | 0 %    | 100 %    | 1.6        | `a-cache-on.md`   |
+| balanced, 20 projects           | 92    | 1.3 s  | 0 %    | 42 %     | 2.7        | `a-cache-on.md`   |
+| multi-project, 60 projects (×2) | 109   | 1.0 s  | 0 %    | 56 %     | 2.3        | `b-hot-multi.md`  |
+| hot-project, 1 project (×2)     | 27    | 5.3 s  | 0 %    | ~0 %     | 9.3        | `b-hot-multi.md`  |
+| write-heavy, 80 % writes (×3)   | 58    | 5.1 s  | 7.4 %  | –        | –          | `b-write-{1,2,3}` |
+
+- **Hot project.** The single shared board returns every user's tasks, unpaginated: 71 KB per
+  response against 12 KB for balanced. Every write invalidates it, so nearly every read rebuilds
+  it.
+  - Throughput falls as VUs rise (41 → 27 → 23 req/s) and CPU per request is 2–4× balanced.
+  - Expected 409 conflicts (70–148 per level) are counted separately: 0.03 % 5xx at most.
+  - The outbox kept up, with only 5–10 writes/s on one partition.
+  - **The board read is O(tasks in the project).**
+- **Multi-project.** Spreading the same users over 60 projects means fewer invalidations per board,
+  so the hit rate is higher (56 %), each request is cheaper and throughput is about 18 % above
+  balanced. Per-project Kafka keys over 3 partitions created no measurable difference for the
+  publisher at these rates.
+- **Write-heavy at 50–200 VUs** failed the error criterion at every level (5–18 % 5xx).
+  - Project-service CPU was 95–100 %. Its 10-connection pool sat full with up to 118 waiters,
+    because multi-statement write transactions hold a connection while their continuations wait
+    for the saturated event loop.
+  - After the pool's 5 s connect timeout these requests failed. They returned 500 until the fix in
+    bug ledger #27, and 503 after it.
+  - No partial commits resulted: the invariants audit after all load passed (213,658 events).
+
+### Publisher capacity (`results/d-publisher-{1,2}/outbox-rates.txt`)
+
+Write-heavy at a fixed 25 VUs, below the error onset, 8 min, ×2. Arrival and publication are
+measured by PostgreSQL over the same 30 s buckets (`created_at` and `published_at`).
+
+| Run | successful writes/s | errors | created vs published per bucket | max backlog | lag p50 / p95 / p99 / max  | publisher CPU |
+| --- | ------------------- | ------ | ------------------------------- | ----------- | -------------------------- | ------------- |
+| 1   | 32.5                | 0 %    | equal in every bucket (31–34/s) | 19          | 0.27 / 0.51 / 0.60 / 1.2 s | ≤ 34 %        |
+| 2   | 29.9                | 0 %    | equal in every bucket (29–32/s) | 18          | 0.28 / 0.51 / 0.62 / 1.2 s | ≤ 38 %        |
+
+- **The sustainable write rate of this deployment is about 30–33 successful writes/s**
+  (project-service at 67–93 % CPU). At that rate the single-stream publisher keeps up, with
+  sub-second lag, at about a third of its CPU.
+- The large backlogs in the 50–200 VU write-heavy runs (peak 1,990, mean lag about 7 s) occurred
+  only after the API itself was saturated and its pool exhausting.
+- **Batch publishing is not justified by these measurements and was not implemented.** The
+  earlier recovery figure (about 55 events/s draining a backlog, September) is a drain rate, not a
+  steady-state limit, and was not re-measured.
+
+### Experiment C: api-gateway CPU and horizontal scaling (`results/c-scale-out.md`, `results/c-profile-2task/`)
+
+| Read-heavy           | 1 project-service task | 2 project-service tasks (×2) |
+| -------------------- | ---------------------- | ---------------------------- |
+| req/s at 100 VUs     | 158                    | 188 (188–189)                |
+| req/s at 200 VUs     | 156                    | 298 (297–298)                |
+| req/s at 300 VUs     | 151                    | 312 (310–314)                |
+| p95 / p99 at 200 VUs | 1437 / 1961 ms         | 485 / 700 ms                 |
+| project-service CPU  | 99–100 %               | 91–94 %                      |
+| api-gateway CPU      | 67–70 %                | **99–100 %**                 |
+| errors               | 0 %                    | 0 %                          |
+
+- **Scaling.** A second project-service task (same host model) roughly **doubled saturated
+  throughput (151–156 → 298–312 req/s, 2.0×)**. The bottleneck then moved to the single
+  api-gateway task.
+  - Two gateway tasks were not tested (NOT RUN; optional in the plan).
+  - The scale was set through Terraform variables and restored to 1 task. Plan exit 0 afterwards.
+- **Gateway profile.** Taken during a 250-VU load verified steady before and after: ALB 295–307
+  req/s, gateway CPU 97–99 %.
+  - Busy time is the inherent work of an HTTP proxy: Node's HTTP core parsing and writing headers
+    on two hops (26.7 % of samples; largest single function `_addHeaderLine` 5.2 %) and
+    `@fastify/reply-from`/undici (about 13.5 %).
+  - Per-request logging (pino plus redaction, 8 %), GC (5 %), Fastify, helmet, CORS and
+    prom-client account for the rest.
+  - **There is no single inefficiency, so there was no code change.** The gateway's capacity is
+    about 300 req/s per 0.25 vCPU task (about 0.8 CPU-ms/request) and it scales horizontally.
+    Turning off per-request info logging would save about 10 % of busy CPU, at the cost of
+    observability. Not done.
+- The earlier profiling run of this session (`results/invalid/c-profile-load`) is not a CPU profile: it was
+  taken after the storage-throttled database had already failed the load.
