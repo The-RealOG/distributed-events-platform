@@ -5,3 +5,6 @@ coverage
 package-lock.json
 tests/test-results
 tests/playwright-report
+# Raw evidence is kept byte for byte as the tools wrote it
+tests/load/results
+tests/failure/results
