@@ -1,0 +1,22 @@
+time="2026-10-17T17:13:12Z" level=info msg="MEASURE_T0=2026-10-17T17:13:12.092Z" source=console
+
+ALL (steady scenario)      n= 100777  p50=   536  p95=  1823  p99=  2361  max=  4055 ms
+  projects                 n=   5120  p50=   710  p95=  2101  p99=  2408  max=  2806 ms
+  board                    n=  81185  p50=   484  p95=  1669  p99=  1962  max=  3470 ms
+  task                     n=   5082  p50=   639  p95=  2131  p99=  2425  max=  2869 ms
+  activity                 n=   4889  p50=  1046  p95=  2747  p99=  3077  max=  4055 ms
+  workspaces               n=  10120  p50=   438  p95=  1584  p99=  1849  max=  2278 ms
+requests 107947 (130.8/s over 825 s incl. setup), failed 0.00 %
+successful writes 0 (0.0/s)
+version conflicts (409) 0
+board cache (client view, x-board-cache) hit 80489 / miss 141 = 99.8 % hits
+
+level  req/s   writes/s  err%    p50    p95    p99   board p95  create p95  move p95  cache hit%  409s
+50       95.5       0.0  0.00     25    166    296        166         0.0       0.0       100.0     0
+100     157.7       0.0  0.00    104    462    737        461         0.0       0.0        99.9     0
+200     155.6       0.0  0.00    728   1437   1961       1231         0.0       0.0        99.6     0
+300     151.1       0.0  0.00   1481   2250   2713       1923         0.0       0.0       100.0     0
+  board (hit)              n=  80489  p50=   476  p95=  1652  p99=  1923  max=  3071 ms
+  board (miss)             n=    141  p50=  1046  p95=  1405  p99=  1435  max=  1451 ms
+  board (bypass)           n=    555  p50=  1850  p95=  2520  p99=  2690  max=  3470 ms
+time="2026-10-17T17:26:34Z" level=error msg="thresholds on metrics 'http_req_duration{kind:api}, http_req_duration{level:200,op:board}, http_req_duration{level:200}, http_req_duration{level:300,op:board}, http_req_duration{level:300}, http_req_duration{op:activity}, http_req_duration{op:board}, http_req_duration{op:projects}, http_req_duration{op:task}, http_req_duration{op:workspaces}' have been crossed"

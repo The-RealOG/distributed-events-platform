@@ -1,0 +1,22 @@
+time="2026-10-17T17:34:39Z" level=info msg="MEASURE_T0=2026-10-17T17:34:39.174Z" source=console
+
+ALL (steady scenario)      n= 161423  p50=   171  p95=   704  p99=   947  max=  2917 ms
+  board                    n= 127357  p50=   156  p95=   681  p99=   907  max=  2798 ms
+  projects                 n=   7969  p50=   177  p95=   716  p99=  1000  max=  2884 ms
+  task                     n=   7928  p50=   166  p95=   785  p99=  1021  max=  2055 ms
+  activity                 n=   8040  p50=   219  p95=   960  p99=  1283  max=  2917 ms
+  workspaces               n=  15929  p50=   136  p95=   627  p99=   828  max=  2601 ms
+requests 168774 (206.1/s over 819 s incl. setup), failed 0.00 %
+successful writes 0 (0.0/s)
+version conflicts (409) 0
+board cache (client view, x-board-cache) hit 127211 / miss 88 = 99.9 % hits
+
+level  req/s   writes/s  err%    p50    p95    p99   board p95  create p95  move p95  cache hit%  409s
+50       97.8       0.0  0.00     24     92    181         90         0.0       0.0       100.0     0
+100     187.6       0.0  0.00     25    202    307        202         0.0       0.0        99.9     0
+200     297.2       0.0  0.00    146    487    695        482         0.0       0.0        99.9     0
+300     314.2       0.0  0.00    467    860   1074        826         0.0       0.0       100.0     0
+  board (hit)              n= 127211  p50=   156  p95=   680  p99=   901  max=  2798 ms
+  board (miss)             n=     88  p50=   137  p95=  1100  p99=  1520  max=  2168 ms
+  board (bypass)           n=     58  p50=   999  p95=  1173  p99=  1221  max=  1259 ms
+time="2026-10-17T17:48:00Z" level=error msg="thresholds on metrics 'http_req_duration{kind:api}, http_req_duration{level:300}' have been crossed"
