@@ -39,10 +39,19 @@ info "3/4 build and deploy $(git rev-parse --short HEAD) (GitHub Actions: images
 
 info "4/4 verify: no drift after the deploy"
 tf_init
-if terraform -chdir="$TF_DIR" plan -input=false -detailed-exitcode -no-color >/dev/null; then
-  info "terraform plan: no changes"
-else
-  warn "terraform plan shows changes (run npm run aws:plan to inspect)"
-fi
+# The deploy registers task-definition revisions and records the image tag outside Terraform (both
+# tracked by design); a refresh-only apply saves them to state, including the image_tag output,
+# which otherwise still reads "bootstrap" after a first deploy and makes the check below report a
+# difference with no resource changes. It changes no infrastructure.
+terraform -chdir="$TF_DIR" apply -refresh-only -auto-approve -input=false -no-color >/dev/null
+set +e
+terraform -chdir="$TF_DIR" plan -input=false -detailed-exitcode -no-color >"$TF_DIR/drift.txt" 2>&1
+drift=$?
+set -e
+case $drift in
+  0) info "terraform plan: no changes" ;;
+  2) warn "terraform plan shows changes:"; grep -E '^\s+# |^Plan:|^Changes to Outputs' "$TF_DIR/drift.txt" >&2 ;;
+  *) warn "terraform plan failed:"; tail -20 "$TF_DIR/drift.txt" >&2 ;;
+esac
 "$(dirname "$0")/status.sh" || true
 info "rebuilt in $(( ($(date +%s) - started) / 60 )) min: $(cfg 'c["app_url"]')"

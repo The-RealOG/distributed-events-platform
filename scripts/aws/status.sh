@@ -13,8 +13,8 @@ printf '%-18s %s\n' "Deployed image" "$(aws ssm get-parameter --name "/${NAME_PR
 printf '\n%s\n' "ECS services (cluster $cluster)"
 # shellcheck disable=SC2046
 aws ecs describe-services --cluster "$cluster" --services $(cfg '" ".join(c["services"])') \
-  --query 'services[].[serviceName,desiredCount,runningCount,deployments[0].rolloutState,split(`:`, taskDefinition)[-1]]' \
-  --output text | awk '{printf "  %-18s desired=%s running=%s rollout=%-12s taskdef-rev=%s\n",$1,$2,$3,$4,$5}'
+  --query 'services[].[serviceName,desiredCount,runningCount,deployments[0].rolloutState,taskDefinition]' \
+  --output text | awk '{n = split($5, a, ":"); printf "  %-18s desired=%s running=%s rollout=%-12s taskdef-rev=%s\n",$1,$2,$3,$4,a[n]}'
 
 tg="$(aws elbv2 describe-target-groups --names "${NAME_PREFIX}-gateway" --query 'TargetGroups[0].TargetGroupArn' --output text 2>/dev/null || true)"
 if [[ "$tg" == arn:* ]]; then

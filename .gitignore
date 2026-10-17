@@ -17,3 +17,4 @@ tests/playwright-report/
 *.tfplan
 infrastructure/terraform/**/local.auto.tfvars
 __pycache__/
+infrastructure/terraform/**/drift.txt
