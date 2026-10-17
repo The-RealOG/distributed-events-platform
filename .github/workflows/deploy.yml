@@ -5,6 +5,11 @@ name: Deploy to AWS dev
 # then runs scripts/aws/rollout.sh: migrations → Kafka topics → rolling ECS update → smoke test.
 on:
   workflow_dispatch:
+    inputs:
+      sha:
+        description: "Deploy this commit (must be in main's history) instead of the head of main: controlled A/B measurements. The web app is not republished for it."
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -17,6 +22,8 @@ concurrency:
 env:
   AWS_REGION: us-east-2
   DPP_ENV: dev
+  # The commit whose images are built and rolled out. Scripts always come from main's head.
+  DEPLOY_SHA: ${{ inputs.sha || github.sha }}
 
 jobs:
   images:
@@ -36,6 +43,11 @@ jobs:
           - { image: realtime-service, app: '@dpp/realtime-service', dir: apps/realtime-service }
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+          fetch-depth: 0
+      - name: Only commits in main's history
+        run: git merge-base --is-ancestor "$DEPLOY_SHA" origin/main
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
@@ -48,12 +60,12 @@ jobs:
           url=$(aws ssm get-parameter --name /dpp-dev/deploy-config --query Parameter.Value --output text \
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["ecr"]["${{ matrix.image }}"])')
           echo "url=$url" >> "$GITHUB_OUTPUT"
-          if aws ecr describe-images --repository-name "${url#*/}" --image-ids imageTag=${{ github.sha }} >/dev/null 2>&1; then
+          if aws ecr describe-images --repository-name "${url#*/}" --image-ids imageTag=${{ env.DEPLOY_SHA }} >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           fi
       - uses: docker/setup-buildx-action@v3
         if: steps.repo.outputs.exists != 'true'
-      - name: Build and push ${{ matrix.image }}:${{ github.sha }}
+      - name: Build and push ${{ matrix.image }}:${{ env.DEPLOY_SHA }}
         if: steps.repo.outputs.exists != 'true'
         uses: docker/build-push-action@v6
         with:
@@ -65,12 +77,12 @@ jobs:
           platforms: linux/amd64
           push: true
           provenance: false
-          tags: ${{ steps.repo.outputs.url }}:${{ github.sha }}
+          tags: ${{ steps.repo.outputs.url }}:${{ env.DEPLOY_SHA }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
   web:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && inputs.sha == ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -99,6 +111,7 @@ jobs:
 
   rollout:
     needs: [images, web]
+    if: always() && needs.images.result == 'success' && contains(fromJSON('["success", "skipped"]'), needs.web.result)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -109,6 +122,6 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-      - run: scripts/aws/rollout.sh ${{ github.sha }}
+      - run: scripts/aws/rollout.sh "$DEPLOY_SHA"
       - name: Smoke test through CloudFront → ALB → gateway → project-service → RDS
         run: scripts/aws/smoke.sh
