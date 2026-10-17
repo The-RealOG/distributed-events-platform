@@ -36,6 +36,11 @@ export function pgErrorCode(err: unknown): string | undefined {
 export function isDatabaseUnavailable(err: unknown): boolean {
   const code = findCode(err);
   if (code !== undefined && CONNECTIVITY_ERROR_CODES.has(code)) return true;
-  const message = err instanceof Error ? err.message : '';
-  return /timeout exceeded when trying to connect|Connection terminated/i.test(message);
+  // pg-pool's acquisition timeout and node-postgres's terminated connections carry no code, and
+  // Drizzle wraps them: the text is on a cause, never on DrizzleQueryError's own message.
+  for (let e: unknown = err, depth = 0; e instanceof Error && depth <= 5; e = e.cause, depth++) {
+    if (/timeout exceeded when trying to connect|Connection terminated/i.test(e.message))
+      return true;
+  }
+  return false;
 }

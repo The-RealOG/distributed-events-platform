@@ -99,6 +99,12 @@ const STORAGE = 'packages/storage/src/object-storage.ts';
 const ATT_INT = { ...PS, files: ['test/attachments.int.test.ts'] };
 const STORAGE_INT = { cwd: 'packages/storage', config: 'vitest.integration.config.ts', files: [] };
 const STORAGE_UNIT = { cwd: 'packages/storage', config: 'vitest.config.ts', files: [] };
+const DB_ERRORS = 'packages/database/src/errors.ts';
+const DB_UNIT = {
+  cwd: 'packages/database',
+  config: 'vitest.config.ts',
+  files: ['src/errors.test.ts'],
+};
 
 export const mutations = [
   {
@@ -1231,5 +1237,27 @@ export const mutations = [
       },
     ],
     tests: [STORAGE_UNIT, { ...ATT_INT, name: 'upload → finalize' }],
+  },
+  {
+    id: 'p10-baseline',
+    phase: 10,
+    title: 'no mutation: database error classification passes',
+    edits: [],
+    tests: [DB_UNIT],
+    expect: 'pass',
+  },
+  {
+    id: 'p10-01-wrapped-pool-timeout-is-500',
+    phase: 10,
+    title: 'a pool timeout wrapped by Drizzle is answered 500 instead of 503 (found on AWS)',
+    edits: [
+      {
+        file: DB_ERRORS,
+        find: '  for (let e: unknown = err, depth = 0; e instanceof Error && depth <= 5; e = e.cause, depth++) {',
+        replace:
+          '  for (let e: unknown = err, depth = 0; e instanceof Error && depth <= 0; e = e.cause, depth++) {',
+      },
+    ],
+    tests: [{ ...DB_UNIT, name: 'Drizzle wrapped' }],
   },
 ];

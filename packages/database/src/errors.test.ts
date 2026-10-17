@@ -16,6 +16,28 @@ describe('database error classification', () => {
     expect(isDatabaseUnavailable(new Error('x', { cause: withCode('08006') }))).toBe(true);
   });
 
+  it('sees pool and connection failures that Drizzle wrapped (no code, text only on the cause)', () => {
+    // The shape seen on AWS under pool exhaustion (2026-10-17): DrizzleQueryError's own message
+    // is "Failed query: …"; pg-pool's error is its cause and carries no code.
+    const drizzle = (cause: Error) =>
+      Object.assign(new Error('Failed query: select "id" from "projects"\nparams: x', { cause }), {
+        name: 'DrizzleQueryError',
+      });
+    expect(
+      isDatabaseUnavailable(drizzle(new Error('timeout exceeded when trying to connect'))),
+    ).toBe(true);
+    expect(
+      isDatabaseUnavailable(
+        drizzle(
+          new Error('Connection terminated due to connection timeout', {
+            cause: new Error('Connection terminated unexpectedly'),
+          }),
+        ),
+      ),
+    ).toBe(true);
+    expect(isDatabaseUnavailable(drizzle(withCode(PG_UNIQUE_VIOLATION)))).toBe(false);
+  });
+
   it('does not treat rejected queries as unavailability', () => {
     expect(isDatabaseUnavailable(withCode(PG_UNIQUE_VIOLATION))).toBe(false);
     expect(isDatabaseUnavailable(new Error('syntax error'))).toBe(false);
