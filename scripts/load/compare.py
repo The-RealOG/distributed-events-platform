@@ -21,6 +21,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 out_path, title, *groups = sys.argv[1:]
+TASK_VCPU = {'project-service': 0.25, 'api-gateway': 0.25}  # services.tf: cpu = 256 units
 
 
 def parse_env(meta):
@@ -33,13 +34,13 @@ def seconds(d):
     return int(m.group(1)) * (60 if m.group(2) == 'm' else 1)
 
 
-def cw(ns, metric, dims, start, end):
+def cw(ns, metric, dims, start, end, stat='Maximum'):
     out = json.loads(subprocess.check_output([
         'aws', 'cloudwatch', 'get-metric-statistics', '--namespace', ns, '--metric-name', metric,
         '--dimensions', *[f'Name={k},Value={v}' for k, v in dims.items()],
         '--start-time', start.isoformat(), '--end-time', end.isoformat(), '--period', '60',
-        '--statistics', 'Maximum', '--output', 'json']))
-    return [p['Maximum'] for p in out['Datapoints']]
+        '--statistics', stat, '--output', 'json']))
+    return [p[stat] for p in out['Datapoints']]
 
 
 def run_levels(d):
@@ -67,7 +68,7 @@ def run_levels(d):
             '409s': v(f'version_conflicts{{level:{vus}}}').get('count', 0),
             'hit %': 100 * hits / (hits + misses) if hits + misses else None,
         }
-        if t0m and str(vus) not in infra:
+        if t0m and 'project-service CPU-ms/req' not in infra.get(str(vus), {}):
             t0 = datetime.fromisoformat(t0m.group(1).replace('Z', '+00:00'))
             start = t0 + timedelta(seconds=warm + i * (step + 5))
             # Full minutes inside the level only (CloudWatch periods are aligned to the start time).
@@ -76,8 +77,14 @@ def run_levels(d):
             cfg = json.loads(subprocess.check_output(['aws', 'ssm', 'get-parameter', '--name', '/dpp-dev/deploy-config', '--query', 'Parameter.Value', '--output', 'text']))
             got = {}
             for svc in ['project-service', 'api-gateway']:
-                pts = cw('AWS/ECS', 'CPUUtilization', {'ClusterName': cfg['cluster'], 'ServiceName': svc}, first, last)
+                dims = {'ClusterName': cfg['cluster'], 'ServiceName': svc}
+                pts = cw('AWS/ECS', 'CPUUtilization', dims, first, last)
                 got[f'{svc} CPU %'] = max(pts) if pts else None
+                # CPU cost per request: mean utilisation × the task's vCPU over the level's request
+                # rate. Comparable across load levels; across runs only on the same host CPU model.
+                avg = cw('AWS/ECS', 'CPUUtilization', dims, first, last, 'Average')
+                vcpu = TASK_VCPU.get(svc, 0.25)
+                got[f'{svc} CPU-ms/req'] = (statistics.mean(avg) / 100 * vcpu * 1000 / row['req/s']) if avg and row['req/s'] else None
             pts = cw('AWS/RDS', 'CPUUtilization', {'DBInstanceIdentifier': cfg['rds']['identifier']}, first, last)
             got['RDS CPU %'] = max(pts) if pts else None
             infra[str(vus)] = got
@@ -97,6 +104,8 @@ def run_levels(d):
         m = re.search(r'^location: (.*)$', open(rt).read(), re.M)
         loc = m.group(1) if m else 'not recorded'
     sha = re.search(r'^deployed_sha=(\S+)', meta, re.M)
+    host = re.search(r'^host project-service: .*cpu "([^"]+)"', meta, re.M)
+    loc += '; project-service host ' + (host.group(1).replace('Intel(R) Xeon(R) ', '').split(' CPU')[0] if host else 'not recorded')
     return rows, pg, loc, sha.group(1)[:7] if sha else '?'
 
 
@@ -112,7 +121,7 @@ def fmt(vals):
 lines = [f'# {title}', '', 'Cells: median across runs (min–max). Latency columns are the median of each run\'s own k6 '
          'percentile, not a pooled percentile. CPU: per-minute maximum over the level\'s full minutes.', '']
 metrics = ['req/s', 'writes/s', 'errors %', 'p50 ms', 'p95 ms', 'p99 ms', 'board p95 ms', 'hit %', '409s',
-           'project-service CPU %', 'api-gateway CPU %', 'RDS CPU %']
+           'project-service CPU %', 'api-gateway CPU %', 'RDS CPU %', 'project-service CPU-ms/req', 'api-gateway CPU-ms/req']
 for g in groups:
     name, dirs = g.split('=', 1)
     runs = [(d, *run_levels(d)) for d in dirs.split(',')]

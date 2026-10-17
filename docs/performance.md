@@ -60,6 +60,8 @@ Thresholds may be revised only with a documented reason in this file; none have 
 
 ### Optimization 1: board read in one statement (commit 4d3ff72)
 
+> **Superseded (2026-10-17).** The before/after figures in this subsection compare runs on different, unrecorded compute and overstate the effect. The controlled re-measurement below replaces them; they are kept unchanged as the original record.
+
 - **Evidence.** A CPU profile of the saturated task (`scripts/aws/cpu-profile.sh`) attributed about 29 % of busy CPU to drizzle-orm query building, versus about 5 % for pg I/O. A board cache miss ran authorization, then BEGIN, the same authorization again, board, columns, tasks, assignees and COMMIT.
 - **Change (one variable).** Authorize once, then load the board with one JSON-aggregating statement. Being a single statement, it reads one snapshot: the no-duplicates/no-vanishing guarantee under concurrent moves is preserved and has a new test.
 - **Rerun:** same parameters (`tests/load/results/balanced-ladder-opt1/`).
@@ -77,6 +79,43 @@ Thresholds may be revised only with a documented reason in this file; none have 
 - **Outbox after the change:** 32,411 events published, 0 failures, 0 pending at the end.
 - **Board cache:** hit rate 43.3 %. Board latency split by server action over the whole run: hit p50 107 ms, miss p50 874 ms. Both include queueing at saturated levels; see the per-level table above for the comparable view.
 - **Caveat:** the 10-VU p95 rose from 58 to 112 ms. It is based on few samples per level and is inside the noise of runs made from different runner machines; it was not investigated further.
+
+### Optimization 1, controlled re-measurement (2026-10-17): `tests/load/results/o-opt1-ab.md`
+
+**Why it was re-measured.** On 2026-10-17 the balanced ladder on the optimized code (`4b22d57`: same
+application code as `4d3ff72`, identical task definitions) gave 92 req/s at 100 VUs in 3 of 3 runs
+(92–92). That is the September _baseline_, not 184. In the September "after" run, api-gateway also
+needed 27 % less CPU per request (1.68 → 1.22 CPU-ms; its code and configuration had not changed).
+Payload size (about 12 KB per request) and the unsaturated hit rate (57–58 %) were the same in all
+runs. The September after-run therefore also ran on different compute: every deploy places new
+Fargate tasks, and the host CPU was not recorded (bug ledger #25).
+
+**Design.**
+
+- **Arms:** before = `afb830e`, after = `4b22d57`. Between them the only runtime difference is the
+  board read path (3 project-service files). There are no differences in migrations, lockfile,
+  Dockerfile or the other six services.
+- **Same session:** both arms ran in this session, with project-service on the **same host CPU
+  model (Xeon Platinum 8175M)** and 1 task of 0.25 vCPU.
+- **Workload:** balanced ladder 50/100/200 VUs, 3 min steps after a 1 min warm-up; 100 users,
+  10 workspaces, 20 projects.
+- **Runs:** before ×3, after ×2.
+
+Cells: median across runs (min–max); latency is the median of each run's own k6 percentile.
+
+| VUs | req/s before → after | p95 before → after | project-service CPU-ms/request before → after |
+| --- | -------------------- | ------------------ | --------------------------------------------- |
+| 50  | 75 → 84              | 644 → 422 ms       | 3.3 → 2.9                                     |
+| 100 | 67 → **84 (+25 %)**  | 1949 → **1426 ms** | 3.6 → **2.8 (−22 %)**                         |
+| 200 | 54 → 71 (+31 %)      | 5200 → 3781 ms     | 4.4 → 3.4                                     |
+
+- **Result:** the optimization is real and kept. It cuts project-service CPU per request by about
+  22 % and raises saturated throughput by about 25–31 % on the same host type. It does **not**
+  double sustained throughput, and on this deployment no level of the balanced ladder meets the
+  latency criteria at 100 VUs, before or after.
+- **Host effect, measured:** the same optimized code costs 2.7 CPU-ms/request on a Xeon 8259CL
+  task (92 req/s at 100 VUs) and 2.8–2.9 on an 8175M task (84 req/s). Comparisons are therefore
+  made only within one host model. Every run's `meta.txt` records it.
 
 ## Recovery: outbox publisher outage (`tests/failure/results/publisher-outage.txt`)
 
