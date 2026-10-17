@@ -1,4 +1,6 @@
 name: Load test (AWS dev)
+# Each run is named after its label, so the caller can find exactly its own run.
+run-name: load ${{ inputs.label }}
 
 # Manual only. Runs k6 on a GitHub-hosted runner (the load generator; not the developer laptop)
 # against the deployed app URL, which it reads from the deploy config in SSM via OIDC (no URL or

@@ -1,0 +1,26 @@
+time="2026-10-17T11:49:32Z" level=info msg="MEASURE_T0=2026-10-17T11:49:32.880Z" source=console
+
+ALL (steady scenario)      n=  27810  p50=   933  p95=  5989  p99=  9053  max= 19396 ms
+  unassign                 n=   1445  p50=   658  p95=  5527  p99=  8566  max= 18441 ms
+  delete                   n=   1244  p50=  1432  p95=  5883  p99=  8985  max= 15320 ms
+  create                   n=   4153  p50=   664  p95=  5313  p99=  8814  max= 16300 ms
+  comment                  n=   2874  p50=   693  p95=  5405  p99=  8832  max= 15420 ms
+  board                    n=   3054  p50=   948  p95=  6483  p99=  9072  max= 15737 ms
+  assign                   n=   2424  p50=   768  p95=  5557  p99=  9009  max= 15424 ms
+  update                   n=   6065  p50=   721  p95=  5487  p99=  8833  max= 19396 ms
+  move                     n=   6064  p50=   727  p95=  5487  p99=  9072  max= 18904 ms
+  activity                 n=   1549  p50=  1326  p95=  7973  p99= 10801  max= 15494 ms
+  task                     n=   1784  p50=  1005  p95=  6564  p99=  9077  max= 14535 ms
+requests 32207 (49.3/s over 653 s incl. setup), failed 8.45 %
+successful writes 22027 (33.7/s)
+version conflicts (409) 308
+board cache (client view, x-board-cache) hit 454 / miss 2188 = 17.2 % hits
+
+level  req/s   writes/s  err%    p50    p95    p99   board p95  create p95  move p95  cache hit%  409s
+50       43.7      32.1  5.97    106   5056   5387       5058        5056      5056        13.7    89
+100      54.9      39.1  9.64    685   5097   6433       5114        5057      5094         4.8    83
+200      55.9      39.0 12.11   2080   8104   9240       8551        7726      7983        28.7   109
+  board (hit)              n=    454  p50=  1338  p95=  4884  p99=  8677  max= 10030 ms
+  board (miss)             n=   2188  p50=   853  p95=  5846  p99=  8826  max= 11912 ms
+  board (bypass)           n=      2  p50=  4479  p95=  5604  p99=  5704  max=  5729 ms
+time="2026-10-17T11:59:50Z" level=error msg="thresholds on metrics 'http_req_duration{kind:api}, http_req_duration{level:100,op:board}, http_req_duration{level:100,op:create}, http_req_duration{level:100,op:move}, http_req_duration{level:100}, http_req_duration{level:200,op:board}, http_req_duration{level:200,op:create}, http_req_duration{level:200,op:move}, http_req_duration{level:200}, http_req_duration{level:50,op:board}, http_req_duration{level:50,op:create}, http_req_duration{level:50,op:move}, http_req_duration{level:50}, http_req_duration{op:activity}, http_req_duration{op:assign}, http_req_duration{op:board}, http_req_duration{op:comment}, http_req_duration{op:create}, http_req_duration{op:delete}, http_req_duration{op:move}, http_req_duration{op:task}, http_req_duration{op:unassign}, http_req_duration{op:update}, http_req_failed, http_req_failed{level:100}, http_req_failed{level:200}, http_req_failed{level:50}' have been crossed"

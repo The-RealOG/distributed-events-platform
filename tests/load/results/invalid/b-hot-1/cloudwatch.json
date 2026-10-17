@@ -1,0 +1,92 @@
+{
+ "ecs/project-service/CPUUtilization": [
+  4.61,
+  20.48,
+  56.09
+ ],
+ "ecs/project-service/MemoryUtilization": [
+  19.73,
+  20.51,
+  37.01
+ ],
+ "ecs/api-gateway/CPUUtilization": [
+  8.84,
+  3.74,
+  32.44
+ ],
+ "ecs/api-gateway/MemoryUtilization": [
+  16.02,
+  11.52,
+  18.65
+ ],
+ "ecs/outbox-publisher/CPUUtilization": [
+  22.42,
+  18.38,
+  23.6
+ ],
+ "ecs/outbox-publisher/MemoryUtilization": [
+  27.05,
+  22.27,
+  23.44
+ ],
+ "ecs/activity-service/CPUUtilization": [
+  25.78,
+  12.6,
+  22.84
+ ],
+ "ecs/activity-service/MemoryUtilization": [
+  22.07,
+  19.34,
+  19.53
+ ],
+ "ecs/realtime-service/CPUUtilization": [
+  14.99,
+  24.65,
+  19.98
+ ],
+ "ecs/realtime-service/MemoryUtilization": [
+  18.95,
+  23.63,
+  19.14
+ ],
+ "ecs/cache-invalidator/CPUUtilization": [
+  17.54,
+  21.32,
+  18.07
+ ],
+ "ecs/cache-invalidator/MemoryUtilization": [
+  19.92,
+  22.85,
+  18.26
+ ],
+ "rds/CPUUtilization": [
+  7.96,
+  5.61,
+  30.81
+ ],
+ "rds/DatabaseConnections": [
+  1.0,
+  7.0,
+  12.0
+ ],
+ "rds/ReadIOPS": [
+  150.71,
+  40.6,
+  248.59
+ ],
+ "rds/WriteIOPS": [
+  0.65,
+  7.94,
+  31.35
+ ],
+ "redis/dpp-dev-001/EngineCPUUtilization": [
+  0.68,
+  0.72,
+  0.7
+ ],
+ "redis/dpp-dev-001/CurrConnections": [
+  7.0,
+  7.0,
+  7.0
+ ]
+}
