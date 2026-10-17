@@ -1,0 +1,28 @@
+time="2026-10-17T15:25:25Z" level=info msg="MEASURE_T0=2026-10-17T15:25:25.863Z" source=console
+
+ALL (steady scenario)      n=  16807  p50=  2099  p95=  9560  p99= 11485  max= 13530 ms
+  delete                   n=    180  p50=  1063  p95=  7092  p99=  7535  max=  7583 ms
+  task                     n=   3085  p50=  1168  p95=  9257  p99=  9850  max= 10454 ms
+  projects                 n=   1746  p50=  1003  p95=  9204  p99=  9780  max= 10217 ms
+  board                    n=   6119  p50=  1410  p95=  9705  p99= 10305  max= 10856 ms
+  move                     n=   1202  p50=  1325  p95=  7081  p99=  7693  max=  8303 ms
+  update                   n=   1198  p50=  1084  p95=  6839  p99=  7626  max=  8002 ms
+  activity                 n=   1780  p50=  1458  p95= 11985  p99= 12873  max= 13530 ms
+  workspaces               n=   2619  p50=   757  p95=  6291  p99=  6950  max=  7422 ms
+  comment                  n=    530  p50=  1094  p95=  6996  p99=  7657  max=  7985 ms
+  create                   n=   1350  p50=  1015  p95=  6864  p99=  7425  max=  7959 ms
+  assign                   n=    517  p50=  1310  p95=  7040  p99=  7707  max=  8268 ms
+  unassign                 n=    365  p50=   856  p95=  6576  p99=  7124  max=  7666 ms
+requests 21824 (34.2/s over 639 s incl. setup), failed 0.00 %
+successful writes 4948 (7.7/s)
+version conflicts (409) 394
+board cache (client view, x-board-cache) hit 880 / miss 4955 = 15.1 % hits
+
+level  req/s   writes/s  err%    p50    p95    p99   board p95  create p95  move p95  cache hit%  409s
+50       41.3      10.2  0.00    773   1489   1821       1655        1224      1491        16.4   118
+100      27.7       6.6  0.00   3208   5220   6013       5125        3539      3405         0.2    88
+200      24.3       5.3  0.00   8098  10984  12465      10302        7497      7629         0.0   148
+  board (hit)              n=    880  p50=   262  p95=   750  p99=  1064  max=  1296 ms
+  board (miss)             n=   4955  p50=  2835  p95=  9778  p99= 10338  max= 10856 ms
+  board (bypass)           n=    284  p50=  4130  p95=  9790  p99= 10061  max= 10740 ms
+time="2026-10-17T15:35:45Z" level=error msg="thresholds on metrics 'http_req_duration{kind:api}, http_req_duration{level:100,op:board}, http_req_duration{level:100,op:create}, http_req_duration{level:100,op:move}, http_req_duration{level:100}, http_req_duration{level:200,op:board}, http_req_duration{level:200,op:create}, http_req_duration{level:200,op:move}, http_req_duration{level:200}, http_req_duration{level:50,op:board}, http_req_duration{level:50,op:create}, http_req_duration{level:50,op:move}, http_req_duration{level:50}, http_req_duration{op:activity}, http_req_duration{op:assign}, http_req_duration{op:board}, http_req_duration{op:comment}, http_req_duration{op:create}, http_req_duration{op:delete}, http_req_duration{op:move}, http_req_duration{op:projects}, http_req_duration{op:task}, http_req_duration{op:unassign}, http_req_duration{op:update}, http_req_duration{op:workspaces}' have been crossed"

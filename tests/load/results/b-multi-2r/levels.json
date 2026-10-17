@@ -1,0 +1,23 @@
+{
+ "50": {
+  "project-service CPU %": 96.3474349975586,
+  "project-service CPU-ms/req": 2.626337985331475,
+  "api-gateway CPU %": 53.54903793334961,
+  "api-gateway CPU-ms/req": 1.4044227237219544,
+  "RDS CPU %": 14.890530423037802
+ },
+ "100": {
+  "project-service CPU %": 99.94245910644531,
+  "project-service CPU-ms/req": 2.289537275596746,
+  "api-gateway CPU %": 58.82931137084961,
+  "api-gateway CPU-ms/req": 1.255500747086024,
+  "RDS CPU %": 16.708611810196835
+ },
+ "200": {
+  "project-service CPU %": 100.0,
+  "project-service CPU-ms/req": 2.709981762550667,
+  "api-gateway CPU %": 49.64717483520508,
+  "api-gateway CPU-ms/req": 1.2768229985062713,
+  "RDS CPU %": 16.31738522023056
+ }
+}
