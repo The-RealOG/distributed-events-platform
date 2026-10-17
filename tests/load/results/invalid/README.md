@@ -13,3 +13,9 @@
 trying to connect`). CloudFront 5xx rose to 100 % from 13:52Z and k6 saw 50.7 % failures. The
   CPU profiles in `profiles/` were taken after the failure began, so they show an idle event loop
   waiting on the pool. They are not a profile of the CPU-bound state and are not used.
+- `e-ws-100`, `e-ws-500`, `e-ws-1000` (18:33–19:03Z): **load-generator-bound**. `realtime.js`
+  staggered connections with a busy-wait, so every waiting VU spun on the 2-vCPU runner. Median
+  connect time grew with the VU count (1.3 → 5.6 → 10.5 s) while realtime-service peaked at 44 % CPU
+  and api-gateway at 42 %. At 1,000 VUs, 310 clients missed the server's 5 s auth window: all 310
+  server closes were `realtime_auth_failures_total{reason="timeout"}`, so the server behaved
+  correctly. Bug ledger #28; rerun with k6 `sleep()`.

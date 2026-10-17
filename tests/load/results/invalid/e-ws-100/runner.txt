@@ -1,0 +1,3 @@
+runner: 2 vCPU, 7 GiB; 2026-10-17T18:35:31Z
+location: azure=WestUS3 vm=Standard_D2ads_v6 cloudfront_pop=PHX52-P1
+exit=0

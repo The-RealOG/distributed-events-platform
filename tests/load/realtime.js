@@ -8,7 +8,7 @@
 //   notify_after_commit_ms  = notification received − HTTP 201 received (commit already done)
 //   notify_after_request_ms = notification received − request sent (what a collaborator sees)
 // (occurredAt vs. a remote clock was tried first and measured the clock skew instead.)
-import { check } from 'k6';
+import { check, sleep } from 'k6';
 import exec from 'k6/execution';
 import { Counter, Rate, Trend } from 'k6/metrics';
 import ws from 'k6/ws';
@@ -73,12 +73,10 @@ export function subscriber(data) {
   const project = data.projects[vu % data.projects.length];
   // Spread connection attempts over RAMP (no synchronized connect storm unless RAMP=0s).
   const wait = (rampMs * (vu - 1)) / Math.max(1, CONNECTIONS);
-  if (wait > 0) {
-    const until = Date.now() + wait;
-    while (Date.now() < until) {
-      // k6 has no async sleep inside iterations before ws.connect; busy-wait is bounded by RAMP
-    }
-  }
+  // k6's sleep blocks only this VU. A busy-wait here (as before) kept every waiting VU spinning:
+  // at 1,000 connections the 2-vCPU runner starved, clients missed the server's 5 s auth window
+  // and the run measured the load generator, not the service (bug ledger #28).
+  if (wait > 0) sleep(wait / 1000);
   const url = `${BASE_URL.replace(/^http/, 'ws')}/api/realtime`;
   let subscribed = false;
   const res = ws.connect(url, { headers: { Origin: BASE_URL }, tags: { kind: 'ws' } }, (socket) => {

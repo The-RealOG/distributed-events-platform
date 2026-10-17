@@ -1,0 +1,7 @@
+
+connections 1000 on 20 project(s); subscribed 69.00 %
+events published 299 (2/s); notifications received 10465 of ~14950 expected (70.00 %)
+notification after HTTP 201 (ms): p50 257  p95 514  p99 550  max 693  (n=299)
+notification after request sent (ms): p50 357  p95 615  p99 622
+server-initiated closes 310
+time="2026-10-17T19:00:08Z" level=error msg="thresholds on metrics 'ws_subscribed' have been crossed"
