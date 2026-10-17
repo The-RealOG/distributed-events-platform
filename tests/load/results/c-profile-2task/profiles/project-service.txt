@@ -1,0 +1,23 @@
+[36m▶ AWS account 904233094657 as mycli in us-east-2 (env: dev)[0m
+
+
+
+samples 9041 over 30 s (1 ms interval)
+--- self time by package
+ 52.6 %  (idle)
+  9.3 %  drizzle-orm
+  8.1 %  node:core
+  6.5 %  (native)
+  3.5 %  app
+  3.5 %  zod
+  3.3 %  pino
+  2.0 %  (program)
+  1.9 %  jose
+  1.7 %  fastify
+  1.7 %  (garbage collector)
+  1.3 %  pg
+  1.2 %  fastify-type-provider-zod
+  1.0 %  pg-protocol
+--- top functions (self time)
+ 52.6 %  (idle) 
+Cannot perform start session: EOF
