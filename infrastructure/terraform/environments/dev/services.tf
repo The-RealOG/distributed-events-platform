@@ -51,7 +51,7 @@ module "project_service" {
   secrets                = merge(local.app_db, { JWT_SECRET = module.secrets.jwt_secret_arn })
   create_service         = true
   cluster_arn            = module.cluster.cluster_arn
-  desired_count          = local.deployed ? 1 : 0
+  desired_count          = local.deployed ? var.project_service_tasks : 0
   subnet_ids             = module.networking.public_subnet_ids
   security_group_id      = module.security.ids["project_service"]
   discovery_namespace_id = module.cluster.namespace_id
@@ -80,7 +80,7 @@ module "api_gateway" {
   })
   create_service          = true
   cluster_arn             = module.cluster.cluster_arn
-  desired_count           = local.deployed ? 1 : 0
+  desired_count           = local.deployed ? var.api_gateway_tasks : 0
   subnet_ids              = module.networking.public_subnet_ids
   security_group_id       = module.security.ids["gateway"]
   target_group_arn        = module.alb.target_group_arn
@@ -190,7 +190,7 @@ module "realtime_service" {
   secrets                = merge(local.app_db, { JWT_SECRET = module.secrets.jwt_secret_arn })
   create_service         = true
   cluster_arn            = module.cluster.cluster_arn
-  desired_count          = local.deployed ? 1 : 0
+  desired_count          = local.deployed ? var.realtime_service_tasks : 0
   subnet_ids             = module.networking.public_subnet_ids
   security_group_id      = module.security.ids["realtime_service"]
   discovery_namespace_id = module.cluster.namespace_id

@@ -81,3 +81,23 @@ variable "board_cache_enabled" {
   type        = bool
   default     = true
 }
+
+# Task counts for controlled scale-out experiments (Phase 10). 1 is the measured baseline; change
+# them with -var for an experiment and apply again without -var to restore, so Terraform stays the
+# only writer of desired counts. Each project-service task opens up to DATABASE_POOL_MAX (10) RDS
+# connections.
+variable "project_service_tasks" {
+  type    = number
+  default = 1
+}
+
+variable "api_gateway_tasks" {
+  type    = number
+  default = 1
+}
+
+variable "realtime_service_tasks" {
+  type    = number
+  default = 1
+}
+
