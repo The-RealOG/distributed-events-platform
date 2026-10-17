@@ -3,3 +3,7 @@
 87f92035f65d5d2c794b1b5fca9d01fd86648298:packages/kafka/src/failures.test.ts:jwt:69
 87f92035f65d5d2c794b1b5fca9d01fd86648298:packages/kafka/src/failures.test.ts:aws-access-token:69
 87f92035f65d5d2c794b1b5fca9d01fd86648298:packages/kafka/src/failures.test.ts:aws-access-token:75
+# Kafka message keys (project UUIDs, the partition key) in the DLQ demo's raw output, matched by the
+# generic-api-key rule (commit 9063ab4). Verified to be UUIDs; exact fingerprints only.
+9063ab43140f1969507a1fcb06bf063f3e04e2aa:tests/failure/results/2026-10-17-dlq.txt:generic-api-key:12
+9063ab43140f1969507a1fcb06bf063f3e04e2aa:tests/failure/results/2026-10-17-dlq.txt:generic-api-key:13
