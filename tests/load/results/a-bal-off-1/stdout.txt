@@ -1,0 +1,25 @@
+time="2026-10-17T09:17:40Z" level=info msg="MEASURE_T0=2026-10-17T09:17:40.866Z" source=console
+
+ALL (steady scenario)      n=  47253  p50=   508  p95=  2685  p99=  3395  max=  4959 ms
+  projects                 n=   4833  p50=   487  p95=  2601  p99=  2956  max=  3348 ms
+  activity                 n=   4786  p50=   656  p95=  3600  p99=  4048  max=  4959 ms
+  move                     n=   3325  p50=   465  p95=  1973  p99=  2343  max=  3376 ms
+  board                    n=  16512  p50=   496  p95=  2655  p99=  3052  max=  4219 ms
+  update                   n=   3245  p50=   432  p95=  1935  p99=  2312  max=  3388 ms
+  comment                  n=   1411  p50=   431  p95=  1941  p99=  2239  max=  2530 ms
+  create                   n=   3215  p50=   405  p95=  1862  p99=  2175  max=  2591 ms
+  delete                   n=    730  p50=   438  p95=  1891  p99=  2152  max=  2549 ms
+  assign                   n=   1380  p50=   471  p95=  1974  p99=  2228  max=  2569 ms
+  task                     n=   4868  p50=   473  p95=  2626  p99=  2964  max=  4014 ms
+  unassign                 n=    911  p50=   354  p95=  1910  p99=  2215  max=  3121 ms
+  workspaces               n=   7097  p50=   276  p95=  1704  p99=  2031  max=  3225 ms
+requests 53864 (84.0/s over 641 s incl. setup), failed 0.00 %
+successful writes 14062 (21.9/s)
+version conflicts (409) 155
+
+level  req/s   writes/s  err%    p50    p95    p99   board p95  create p95  move p95  cache hit%  409s
+50       91.4      24.5  0.00     55    305    534        288         409       382         0.0    58
+100      93.8      25.5  0.00    549   1198   1534       1245         939      1013         0.0    43
+200      77.3      20.3  0.00   2153   3251   3824       2988        2164      2295         0.0    49
+  board (bypass)           n=  16512  p50=   496  p95=  2655  p99=  3052  max=  4219 ms
+time="2026-10-17T09:27:58Z" level=error msg="thresholds on metrics 'http_req_duration{kind:api}, http_req_duration{level:100,op:board}, http_req_duration{level:100,op:move}, http_req_duration{level:100}, http_req_duration{level:200,op:board}, http_req_duration{level:200,op:create}, http_req_duration{level:200,op:move}, http_req_duration{level:200}, http_req_duration{op:activity}, http_req_duration{op:assign}, http_req_duration{op:board}, http_req_duration{op:comment}, http_req_duration{op:create}, http_req_duration{op:delete}, http_req_duration{op:move}, http_req_duration{op:projects}, http_req_duration{op:task}, http_req_duration{op:unassign}, http_req_duration{op:update}, http_req_duration{op:workspaces}' have been crossed"

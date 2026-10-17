@@ -1,0 +1,17 @@
+{
+ "50": {
+  "project-service CPU %": 91.695556640625,
+  "api-gateway CPU %": 55.090152740478516,
+  "RDS CPU %": 12.273052536985572
+ },
+ "100": {
+  "project-service CPU %": 98.1030502319336,
+  "api-gateway CPU %": 69.56983184814453,
+  "RDS CPU %": 15.041917365289423
+ },
+ "200": {
+  "project-service CPU %": 100.0,
+  "api-gateway CPU %": 67.07258605957031,
+  "RDS CPU %": 15.249783808953635
+ }
+}
