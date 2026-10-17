@@ -42,6 +42,7 @@ export async function createHarness(
     DATABASE_URL: databaseUrl,
     JWT_SECRET,
     AUTH_DEV_LOGIN_ENABLED: 'true',
+    DEPLOYMENT_ENVIRONMENT: 'test',
   });
   const database = createDatabase({
     connectionString: databaseUrl,

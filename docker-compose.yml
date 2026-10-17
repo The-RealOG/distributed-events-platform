@@ -107,6 +107,7 @@ services:
       DATABASE_URL: *database-url
       JWT_SECRET: ${JWT_SECRET:-local-development-only-jwt-secret-000}
       AUTH_DEV_LOGIN_ENABLED: 'true'
+      DEPLOYMENT_ENVIRONMENT: local
       # Optional acceleration: if valkey is down, board reads go to PostgreSQL.
       CACHE_ENABLED: 'true'
       REDIS_URL: redis://valkey:6379

@@ -44,6 +44,7 @@ const projectServiceEnv = () => ({
   DATABASE_URL: postgres.url,
   JWT_SECRET,
   AUTH_DEV_LOGIN_ENABLED: 'true',
+  DEPLOYMENT_ENVIRONMENT: 'test',
   CACHE_ENABLED: 'true',
   REDIS_URL: redis.url,
   CACHE_TTL_SECONDS: '300',

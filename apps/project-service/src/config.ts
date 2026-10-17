@@ -16,6 +16,9 @@ const envSchema = baseEnvSchema
       .default(8 * 60 * 60),
     // Passwordless login by email, for local development and tests only. Off unless explicitly set.
     AUTH_DEV_LOGIN_ENABLED: z.stringbool().default(false),
+    // Where this process runs. Defaults to production, so an environment that does not declare
+    // itself cannot enable dev login (see the refinement below): forgetting the variable fails safe.
+    DEPLOYMENT_ENVIRONMENT: z.enum(['local', 'test', 'dev', 'production']).default('production'),
     // Shared board cache (ADR-015). Off unless configured: PostgreSQL alone is always correct.
     CACHE_ENABLED: z.stringbool().default(false),
     REDIS_URL: z
@@ -52,6 +55,11 @@ const envSchema = baseEnvSchema
   .refine((c) => !c.STORAGE_ENABLED || c.STORAGE_BUCKET !== undefined, {
     path: ['STORAGE_BUCKET'],
     message: 'is required when STORAGE_ENABLED=true',
+  })
+  // Dev login signs anyone in by email alone: it must never be reachable in production.
+  .refine((c) => !c.AUTH_DEV_LOGIN_ENABLED || c.DEPLOYMENT_ENVIRONMENT !== 'production', {
+    path: ['AUTH_DEV_LOGIN_ENABLED'],
+    message: 'must be false when DEPLOYMENT_ENVIRONMENT is production (the default)',
   });
 
 export type ProjectServiceConfig = z.infer<typeof envSchema>;

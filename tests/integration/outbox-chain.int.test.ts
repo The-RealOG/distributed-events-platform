@@ -67,6 +67,7 @@ beforeAll(async () => {
     DATABASE_URL: postgres.url,
     JWT_SECRET: 'chain-test-secret-chain-test-secret!!',
     AUTH_DEV_LOGIN_ENABLED: 'true',
+    DEPLOYMENT_ENVIRONMENT: 'test',
   });
   gateway = await startService('api-gateway', { PROJECT_SERVICE_URL: projectService.url });
   publisher = await startService('outbox-publisher', publisherEnv());

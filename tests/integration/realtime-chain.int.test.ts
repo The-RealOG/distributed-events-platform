@@ -49,6 +49,7 @@ beforeAll(async () => {
       DATABASE_URL: postgres.url,
       JWT_SECRET,
       AUTH_DEV_LOGIN_ENABLED: 'true',
+      DEPLOYMENT_ENVIRONMENT: 'test',
     }),
     startService('realtime-service', {
       DATABASE_URL: postgres.url,

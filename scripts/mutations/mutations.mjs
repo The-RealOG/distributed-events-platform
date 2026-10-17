@@ -100,6 +100,12 @@ const ATT_INT = { ...PS, files: ['test/attachments.int.test.ts'] };
 const STORAGE_INT = { cwd: 'packages/storage', config: 'vitest.integration.config.ts', files: [] };
 const STORAGE_UNIT = { cwd: 'packages/storage', config: 'vitest.config.ts', files: [] };
 const DB_ERRORS = 'packages/database/src/errors.ts';
+const PS_CONFIG = 'apps/project-service/src/config.ts';
+const PS_UNIT = {
+  cwd: 'apps/project-service',
+  config: 'vitest.config.ts',
+  files: ['src/config.test.ts'],
+};
 const DB_UNIT = {
   cwd: 'packages/database',
   config: 'vitest.config.ts',
@@ -1243,7 +1249,7 @@ export const mutations = [
     phase: 10,
     title: 'no mutation: database error classification passes',
     edits: [],
-    tests: [DB_UNIT],
+    tests: [DB_UNIT, PS_UNIT],
     expect: 'pass',
   },
   {
@@ -1259,5 +1265,18 @@ export const mutations = [
       },
     ],
     tests: [{ ...DB_UNIT, name: 'Drizzle wrapped' }],
+  },
+  {
+    id: 'p10-02-dev-login-allowed-in-production',
+    phase: 10,
+    title: 'dev login (sign in as anyone by email) can be enabled in production',
+    edits: [
+      {
+        file: PS_CONFIG,
+        find: "  .refine((c) => !c.AUTH_DEV_LOGIN_ENABLED || c.DEPLOYMENT_ENVIRONMENT !== 'production', {",
+        replace: '  .refine((c) => c.AUTH_DEV_LOGIN_ENABLED || !c.AUTH_DEV_LOGIN_ENABLED, {',
+      },
+    ],
+    tests: [{ ...PS_UNIT, name: 'refuses dev login' }],
   },
 ];

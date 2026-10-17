@@ -18,6 +18,7 @@ beforeAll(async () => {
     DATABASE_URL: postgres.url,
     JWT_SECRET: 'system-test-secret-system-test-secret',
     AUTH_DEV_LOGIN_ENABLED: 'true',
+    DEPLOYMENT_ENVIRONMENT: 'test',
     SHUTDOWN_TIMEOUT_MS: '8000',
   });
   gateway = await startService('api-gateway', {

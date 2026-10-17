@@ -37,6 +37,8 @@ module "project_service" {
     # Dev login is how the smoke test and demo sign in. The environment is short-lived and its URL
     # unpublished; a real environment would use an identity provider (AuthProvider interface).
     AUTH_DEV_LOGIN_ENABLED = "true"
+    # project-service refuses dev login unless the environment is declared non-production.
+    DEPLOYMENT_ENVIRONMENT = var.environment
     }, var.enable_redis ? {
     # Board cache (ADR-015); TLS in transit, reachable only from these tasks' security groups.
     CACHE_ENABLED     = tostring(var.board_cache_enabled)
