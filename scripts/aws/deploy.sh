@@ -26,7 +26,12 @@ gh workflow run deploy.yml --ref main
 sleep 5
 run_id="$(gh run list --workflow deploy.yml --branch main --limit 1 --json databaseId,headSha --jq ".[] | select(.headSha==\"$sha\") | .databaseId")"
 [[ -n "$run_id" ]] || die "could not find the workflow run"
-gh run watch "$run_id" --exit-status --interval 15 || die "deploy workflow failed: gh run view $run_id --log-failed"
+# The watch can fail on a transient API error (seen: HTTP 404 mid-run) while the deploy goes on, so the
+# run's own conclusion decides, not the watch's exit status.
+gh run watch "$run_id" --interval 15 >/dev/null 2>&1 || true
+until [[ "$(gh run view "$run_id" --json status -q .status 2>/dev/null)" == completed ]]; do sleep 15; done
+[[ "$(gh run view "$run_id" --json conclusion -q .conclusion)" == success ]] ||
+  die "deploy workflow failed: gh run view $run_id --log-failed"
 # Save the deploy's image tag and task-definition revisions to Terraform state (state only, no
 # infrastructure change), so the next plan or drift check does not report a stale image_tag output.
 tf_init

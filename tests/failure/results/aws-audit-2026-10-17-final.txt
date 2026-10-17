@@ -1,0 +1,48 @@
+▶ AWS account 904233094657 as mycli in us-east-2 (env: dev)
+  PASS 250 tagged resources, all ManagedBy=Terraform (+ the state bucket from bootstrap.sh)
+  PASS public subnet 10.40.0.0/24 routes 0.0.0.0/0 → IGW; auto-assign public IP=False
+  PASS public subnet 10.40.1.0/24 routes 0.0.0.0/0 → IGW; auto-assign public IP=False
+  PASS data subnet 10.40.10.0/24 (us-east-2a) has no internet route
+  PASS data subnet 10.40.11.0/24 (us-east-2b) has no internet route
+  PASS no NAT gateway in the VPC
+  NOTE VPC endpoints: none (tasks reach AWS APIs over public IPs, outbound only)
+  PASS no ingress from 0.0.0.0/0 anywhere (found: none)
+  PASS ingress rules exactly as designed (16 rules)
+  PASS msk SG has no egress rules
+  PASS rds SG has no egress rules
+  PASS redis SG has no egress rules
+  PASS RDS PubliclyAccessible = false
+  PASS RDS storage encrypted
+  PASS RDS status available, PostgreSQL 17.11, db.t4g.micro
+  PASS RDS subnet group uses only data subnets
+  PASS RDS master password managed by RDS in Secrets Manager
+  PASS rds.force_ssl = 1 (TLS required)
+  PASS MSK public access DISABLED
+  PASS MSK: IAM auth only, unauthenticated disabled
+  PASS MSK client-broker TLS only
+  PASS MSK brokers in data subnets
+  NOTE MSK ACTIVE: Kafka 3.9.x, 2 × kafka.t3.small
+  PASS s3://dpp-dev-attachments-904233094657-us-east-2: all public access blocked, policy not public
+  PASS s3://dpp-dev-attachments-904233094657-us-east-2: AES256 encryption, ACLs disabled
+  PASS s3://dpp-dev-attachments-904233094657-us-east-2: CORS only for the app origin (https://dc7i81hchheli.cloudfront.net), methods ['GET', 'POST']
+  PASS s3://dpp-dev-web-904233094657-us-east-2: all public access blocked, policy not public
+  PASS s3://dpp-dev-web-904233094657-us-east-2: AES256 encryption, ACLs disabled
+  PASS s3://dpp-dev-web-904233094657-us-east-2: no CORS (served only via CloudFront)
+  PASS ECR: exactly the 7 deployable images (activity-service, realtime-service, api-gateway, project-service, cache-invalidator, kafka-tools, outbox-publisher)
+  PASS ECR: scan on push, immutable tags, lifecycle policy, no repository policy (account-only access)
+  PASS ECS cluster dpp-dev ACTIVE; capacity providers ['FARGATE', 'FARGATE_SPOT']
+  PASS ECS services: ECS Exec enabled, circuit breaker with rollback
+  NOTE ECS services project-service desired=1 running=1, api-gateway desired=1 running=1, outbox-publisher desired=1 running=1, activity-service desired=1 running=1, cache-invalidator desired=1 running=1, realtime-service desired=1 running=1
+  PASS no role has AdministratorAccess/PowerUserAccess/IAMFullAccess
+  NOTE Resource='*' statements (APIs without resource-level permissions): github-deploy:EcrLogin; github-deploy:TaskDefinitions; github-deploy:RollServicesAndRunJobs (cluster-conditioned); task-activity-service:EcsExecChannels; task-api-gateway:EcsExecChannels; task-cache-invalidator:EcsExecChannels; task-outbox-publisher:EcsExecChannels; task-project-service:EcsExecChannels; task-realtime-service:EcsExecChannels
+  PASS GitHub OIDC trust: this repo (immutable owner/repo IDs), main branch only, audience sts.amazonaws.com
+  NOTE IAM user mycli (developer CLI) has 2 access key(s); no keys were created by this phase
+  PASS Secrets: jwt-signing-key, app-db-user, and the RDS-managed master secret (values not read)
+  PASS 8 ECS log groups, all with 7-day retention
+  PASS ElastiCache valkey 9.1.0 cache.t4g.micro available
+  PASS ElastiCache: TLS in transit and encryption at rest
+  PASS ElastiCache nodes only in data subnets (no internet route)
+  PASS ElastiCache uses only the redis security group
+  PASS budget dpp-dev-monthly: $50/month; actual>100% → 1 email subscriber(s); actual>50% → 1 email subscriber(s); actual>80% → 1 email subscriber(s); forecasted>100% → 1 email subscriber(s)
+
+inventory: /tmp/dpp-aws-inventory.json
