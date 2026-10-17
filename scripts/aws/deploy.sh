@@ -27,4 +27,9 @@ sleep 5
 run_id="$(gh run list --workflow deploy.yml --branch main --limit 1 --json databaseId,headSha --jq ".[] | select(.headSha==\"$sha\") | .databaseId")"
 [[ -n "$run_id" ]] || die "could not find the workflow run"
 gh run watch "$run_id" --exit-status --interval 15 || die "deploy workflow failed: gh run view $run_id --log-failed"
+# Save the deploy's image tag and task-definition revisions to Terraform state (state only, no
+# infrastructure change), so the next plan or drift check does not report a stale image_tag output.
+tf_init
+terraform -chdir="$TF_DIR" apply -refresh-only -auto-approve -input=false -no-color >/dev/null ||
+  warn "state refresh after the deploy failed (run: npm run aws:plan)"
 info "deployed ${sha:0:7}: $(cfg 'c["app_url"]')"
