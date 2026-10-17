@@ -1,0 +1,15 @@
+label=d-publisher-2 script=http scenario=write-heavy
+k6_env=VUS=25 DURATION=8m RAMP=30s TEST_USER_COUNT=100 WORKSPACE_COUNT=10 PROJECT_COUNT=20 SEED_TASKS=20
+deployed_sha=0819abc0f46c973b989b0d355412346245499271
+harness_sha=52cf1ba
+rds EBSByteBalance%=99.0
+rds EBSIOBalance%=99.0
+rds CPUCreditBalance=3.388440833333333
+service project-service: running 1/1, 256 CPU units, 512 MiB, dpp-dev-project-service:26 CACHE_ENABLED=true
+service api-gateway: running 1/1, 256 CPU units, 512 MiB, dpp-dev-api-gateway:22
+service outbox-publisher: running 1/1, 256 CPU units, 512 MiB, dpp-dev-outbox-publisher:22
+service activity-service: running 1/1, 256 CPU units, 512 MiB, dpp-dev-activity-service:16
+service realtime-service: running 1/1, 256 CPU units, 512 MiB, dpp-dev-realtime-service:11
+service cache-invalidator: running 1/1, 256 CPU units, 512 MiB, dpp-dev-cache-invalidator:15
+host project-service: task 31ae54de7d4d, cpu "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz", node v24.22.0
+host api-gateway: task 496e44971c4c, cpu "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz", node v24.22.0

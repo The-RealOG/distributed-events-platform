@@ -1,0 +1,25 @@
+[36m▶ AWS account 904233094657 as mycli in us-east-2 (env: dev)[0m
+Connection to localhost port 15434 [tcp/*] succeeded!
+bucket 30 s; rates per second
+t(UTC)    created/s  published/s  backlog
+16:36:53        0.0          0.0        0
+16:37:23       20.4         20.3        5
+16:37:53       30.8         30.5       15
+16:38:23       33.3         33.5        9
+16:38:53       33.3         33.3       10
+16:39:23       33.3         33.1       16
+16:39:53       32.9         33.3        4
+16:40:23       32.2         31.9       13
+16:40:53       32.9         33.1        6
+16:41:23       33.7         33.4       15
+16:41:53       32.5         32.9        5
+16:42:23       32.9         33.0        1
+16:42:53       34.3         33.7       19
+16:43:23       31.9         32.1       12
+16:43:53       32.3         32.5        4
+16:44:23       32.3         32.2        8
+16:44:53       32.3         32.2       11
+16:45:23       31.8         32.0        6
+16:45:53       16.3         16.5        0
+events created in window 16783, published 16783; lag created→published p50 0.27 s, p95 0.51 s, p99 0.60 s, max 1.17 s
+scripts/load/outbox-rates.sh: line 45: 30086 Terminated: 15          DB_TUNNEL_PORT="$port" "$(dirname "$0")/../aws/db-tunnel.sh" > /dev/null 2>&1

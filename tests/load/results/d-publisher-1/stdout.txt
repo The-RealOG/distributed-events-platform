@@ -1,0 +1,19 @@
+time="2026-10-17T16:37:33Z" level=info msg="MEASURE_T0=2026-10-17T16:37:33.073Z" source=console
+
+ALL (steady scenario)      n=  22718  p50=    34  p95=   166  p99=   423  max=  1351 ms
+  comment                  n=   2187  p50=    33  p95=   152  p99=   401  max=   878 ms
+  board                    n=   2232  p50=    36  p95=   152  p99=   402  max=  1351 ms
+  task                     n=   1376  p50=    33  p95=   111  p99=   262  max=  1077 ms
+  delete                   n=   1808  p50=    32  p95=   131  p99=   382  max=  1271 ms
+  create                   n=   2113  p50=    34  p95=   152  p99=   375  max=   779 ms
+  unassign                 n=   1051  p50=    31  p95=   165  p99=   426  max=  1179 ms
+  update                   n=   4495  p50=    34  p95=   178  p99=   471  max=  1254 ms
+  move                     n=   4514  p50=    35  p95=   189  p99=   456  max=  1304 ms
+  activity                 n=   1130  p50=    33  p95=   128  p99=   336  max=   971 ms
+  assign                   n=   1812  p50=    34  p95=   186  p99=   529  max=  1179 ms
+requests 24269 (44.6/s over 544 s incl. setup), failed 0.00 %
+successful writes 17688 (32.5/s)
+version conflicts (409) 292
+board cache (client view, x-board-cache) hit 315 / miss 1917 = 14.1 % hits
+  board (hit)              n=    315  p50=    33  p95=   110  p99=   397  max=   647 ms
+  board (miss)             n=   1917  p50=    36  p95=   159  p99=   392  max=  1351 ms
