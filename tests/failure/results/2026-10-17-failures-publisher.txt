@@ -1,0 +1,9 @@
+[36m▶ AWS account 904233094657 as mycli in us-east-2 (env: dev)[0m
+Failure injections against https://dc7i81hchheli.cloudfront.net
+
+▶ Outbox publisher outage: writes continue, backlog drains, nothing lost
+  publisher at 0 tasks; writing
+  300/300 writes succeeded in 4676 ms with no publisher
+[32mPASS[0m Outbox publisher outage: writes continue, backlog drains, nothing lost — 300/300 writes OK during the outage (backlog ≥ 300 events; also board/activity reads kept working); after scale-up the publisher published 300 events in 4.2 s from first to last (72 events/s); last backlog event visible in activity 47 s after the scale-up command (includes ECS task start)
+
+1/1 passed

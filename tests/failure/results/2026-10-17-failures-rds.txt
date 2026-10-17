@@ -1,0 +1,17 @@
+[36m▶ AWS account 904233094657 as mycli in us-east-2 (env: dev)[0m
+Failure injections against https://dc7i81hchheli.cloudfront.net
+
+▶ RDS reboot (single-AZ: closest practical interruption; no managed failover exists here)
+  RDS reboot requested
+file:///Users/chibuezekingsleyanyachebelu/Projects/distributed-events-platform/scripts/aws/demo-failures.mjs:295
+      for (let i = 0; i < 400 && !writer.stop; i++) {
+                                  ^
+
+ReferenceError: Cannot access 'writer' before initialization
+    at file:///Users/chibuezekingsleyanyachebelu/Projects/distributed-events-platform/scripts/aws/demo-failures.mjs:295:35
+    at file:///Users/chibuezekingsleyanyachebelu/Projects/distributed-events-platform/scripts/aws/demo-failures.mjs:300:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async demo (file:///Users/chibuezekingsleyanyachebelu/Projects/distributed-events-platform/scripts/aws/demo-failures.mjs:118:5)
+    at async file:///Users/chibuezekingsleyanyachebelu/Projects/distributed-events-platform/scripts/aws/demo-failures.mjs:266:1
+
+Node.js v24.11.0

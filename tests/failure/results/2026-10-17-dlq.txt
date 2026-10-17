@@ -1,0 +1,32 @@
+[36m▶ AWS account 904233094657 as mycli in us-east-2 (env: dev)[0m
+[36m▶ running one-off task dpp-dev-kafka-tools (sh -c 
+  echo '--- DLQ before'; node --disable-warning=TimeoutNegativeWarning dist/cli.js dlq-list;
+  echo '--- inject'; node --disable-warning=TimeoutNegativeWarning dist/cli.js produce-malformed --kind bad-payload && node --disable-warning=TimeoutNegativeWarning dist/cli.js produce-sample --type task.created;
+  sleep 20;
+  echo '--- DLQ after'; node --disable-warning=TimeoutNegativeWarning dist/cli.js dlq-list;
+  echo '--- consumer groups'; node --disable-warning=TimeoutNegativeWarning dist/cli.js groups)[0m
+[36m▶ task 0cca5c24495845108581a049e21ce29b started; waiting for it to finish[0m
+--- DLQ before
+--- inject
+{"message":"sent malformed message","kind":"bad-payload","partition":1,"offset":"96182"}
+{"level":"info","time":"2026-10-17T20:37:09.673Z","service":"kafka-tools","component":"event-producer","eventId":"2e9340e7-9e5a-4b82-8cc5-9538f97af512","eventType":"task.created","correlationId":"kafka-tools-c768fe3b-9fba-4edf-8940-7c28c870c2a8","topic":"domain.events","key":"5beb4c95-c6f7-49ff-92d4-1260f093d8f2","partition":1,"offset":"96183","durationMs":184,"message":"event published"}
+{"message":"published","eventId":"2e9340e7-9e5a-4b82-8cc5-9538f97af512","eventType":"task.created","correlationId":"kafka-tools-c768fe3b-9fba-4edf-8940-7c28c870c2a8","topic":"domain.events","partition":1,"offset":"96183","key":"5beb4c95-c6f7-49ff-92d4-1260f093d8f2"}
+--- DLQ after
+{"level":"info","time":"2026-10-17T20:37:33.130Z","service":"kafka-tools","component":"kafkajs","namespace":"Consumer","groupId":"dlq-reader-00328fc8-f46e-44fa-a33e-fb300af65308","message":"Starting"}
+{"level":"info","time":"2026-10-17T20:37:36.247Z","service":"kafka-tools","component":"kafkajs","namespace":"ConsumerGroup","groupId":"dlq-reader-00328fc8-f46e-44fa-a33e-fb300af65308","memberId":"kafka-tools-0be1bff4-15af-45c0-9dbd-4f5871bc3b57","leaderId":"kafka-tools-0be1bff4-15af-45c0-9dbd-4f5871bc3b57","isLeader":true,"memberAssignment":{"domain.events.dlq":[0]},"groupProtocol":"RoundRobinAssigner","duration":3115,"message":"Consumer has joined the group"}
+{"level":"info","time":"2026-10-17T20:37:36.778Z","service":"kafka-tools","component":"kafkajs","namespace":"Runner","groupId":"dlq-reader-00328fc8-f46e-44fa-a33e-fb300af65308","memberId":"kafka-tools-0be1bff4-15af-45c0-9dbd-4f5871bc3b57","message":"consumer not running, exiting"}
+{"level":"info","time":"2026-10-17T20:37:36.791Z","service":"kafka-tools","component":"kafkajs","namespace":"Consumer","groupId":"dlq-reader-00328fc8-f46e-44fa-a33e-fb300af65308","message":"Stopped"}
+{"dlqPartition":0,"dlqOffset":"0","category":"malformed","consumer":"activity-service","attempts":1,"failedAt":"2026-10-17T20:37:06.469Z","error":"invalid_payload: payload.projectId: Invalid input: expected string, received undefined; payload.actorId: Invalid input: expected string, received undefined; payload.taskId: Invalid input: expected string, received undefined","source":{"topic":"domain.events","partition":1,"offset":"96182","key":"malformed-demo"}}
+--- consumer groups
+{"groupId":"probe-09b5beb8","state":"Empty","members":0,"topic":"domain.events","partitions":[{"partition":0,"committed":"-1","lag":"96473"},{"partition":1,"committed":"-1","lag":"96184"},{"partition":2,"committed":"1","lag":"98883"}]}
+{"groupId":"realtime-service.ip-10-40-0-78.us-east-2.compute.internal-6","state":"Stable","members":1,"topic":"domain.events","partitions":[{"partition":0,"committed":"96473","lag":"0"},{"partition":1,"committed":"96184","lag":"0"},{"partition":2,"committed":"98884","lag":"0"}]}
+{"groupId":"cache-invalidator","state":"Stable","members":1,"topic":"domain.events","partitions":[{"partition":0,"committed":"96473","lag":"0"},{"partition":1,"committed":"96184","lag":"0"},{"partition":2,"committed":"98884","lag":"0"}]}
+{"groupId":"realtime-service.ip-10-40-0-93.us-east-2.compute.internal-7","state":"Empty","members":0,"topic":"domain.events","partitions":[{"partition":0,"committed":"46768","lag":"49705"},{"partition":1,"committed":"43974","lag":"52210"},{"partition":2,"committed":"47144","lag":"51740"}]}
+{"groupId":"dlq-reader-00328fc8-f46e-44fa-a33e-fb300af65308","state":"Empty","members":0,"topic":"domain.events","partitions":[{"partition":0,"committed":"-1","lag":"96473"},{"partition":1,"committed":"-1","lag":"96184"},{"partition":2,"committed":"-1","lag":"98884"}]}
+{"groupId":"realtime-service.ip-10-40-1-29.us-east-2.compute.internal-7","state":"Empty","members":0,"topic":"domain.events","partitions":[{"partition":0,"committed":"40706","lag":"55767"},{"partition":1,"committed":"33780","lag":"62404"},{"partition":2,"committed":"32860","lag":"66024"}]}
+{"groupId":"amazon.msk.canary.group.broker-2","state":"Empty","members":0,"topic":"domain.events","partitions":[{"partition":0,"committed":"-1","lag":"96473"},{"partition":1,"committed":"-1","lag":"96184"},{"partition":2,"committed":"-1","lag":"98884"}]}
+{"groupId":"realtime-service.ip-10-40-1-154.us-east-2.compute.internal-7","state":"Empty","members":0,"topic":"domain.events","partitions":[{"partition":0,"committed":"96446","lag":"27"},{"partition":1,"committed":"95860","lag":"324"},{"partition":2,"committed":"98697","lag":"187"}]}
+{"groupId":"amazon.msk.canary.group.broker-1","state":"Empty","members":0,"topic":"domain.events","partitions":[{"partition":0,"committed":"-1","lag":"96473"},{"partition":1,"committed":"-1","lag":"96184"},{"partition":2,"committed":"-1","lag":"98884"}]}
+{"groupId":"activity-service","state":"Stable","members":1,"topic":"domain.events","partitions":[{"partition":0,"committed":"96473","lag":"0"},{"partition":1,"committed":"96184","lag":"0"},{"partition":2,"committed":"98884","lag":"0"}]}
+{"groupId":"realtime-service.ip-10-40-1-114.us-east-2.compute.internal-7","state":"Empty","members":0,"topic":"domain.events","partitions":[{"partition":0,"committed":"77646","lag":"18827"},{"partition":1,"committed":"65600","lag":"30584"},{"partition":2,"committed":"70418","lag":"28466"}]}
+[36m▶ task dpp-dev-kafka-tools succeeded[0m

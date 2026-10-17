@@ -291,8 +291,12 @@ await demo(
       1_000,
     );
     const writes = [];
+    // A separate flag: the loop condition runs before the first await, while `writer` is still in
+    // its temporal dead zone (reading writer.stop there threw and ended the demo after the reboot
+    // had been requested).
+    const writing = { stop: false };
     const writer = (async () => {
-      for (let i = 0; i < 400 && !writer.stop; i++) {
+      for (let i = 0; i < 400 && !writing.stop; i++) {
         const r = await create(f, `rds ${i}`);
         writes.push({ t: Date.now(), status: r.status, code: r.body?.error?.code });
         await sleep(1_000);
@@ -323,7 +327,7 @@ await demo(
       600_000,
       1_000,
     );
-    writer.stop = true;
+    writing.stop = true;
     await writer;
     const w = await reads.stop();
     const failedWrites = writes.filter((x) => x.status !== 201);
