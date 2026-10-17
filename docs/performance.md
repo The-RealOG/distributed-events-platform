@@ -271,3 +271,37 @@ measured by PostgreSQL over the same 30 s buckets (`created_at` and `published_a
     observability. Not done.
 - The earlier profiling run of this session (`results/invalid/c-profile-load`) is not a CPU profile: it was
   taken after the storage-throttled database had already failed the load.
+
+### Experiment D: WebSocket load (`results/e-ws-*`)
+
+Subscribers spread over 20 projects hold a socket for 3 min. A probe VU creates 300 tasks
+(2/s) in one project and measures **notify-after-commit** on one clock: from receiving the HTTP 201
+(the commit is already done) to receiving that task's event on its own socket. This interval covers
+the outbox poll, Kafka, the realtime consumer, the WebSocket send and the network back to the
+client. It is not browser-to-browser end-to-end. Expected deliveries are the subscribers on the
+probe's project × the probe's events.
+
+| Run                                           | subscribed | delivered / expected | notify-after-commit p50 / p95 / p99 | connect p50 / p95 / max | realtime CPU | gateway CPU |
+| --------------------------------------------- | ---------- | -------------------- | ----------------------------------- | ----------------------- | ------------ | ----------- |
+| 100 connections, 1 replica                    | 100 %      | 1,500 / 1,500        | 240 / 504 / 550 ms                  | 104 / 121 / 152 ms      | ≤ 31 %       | ≤ 46 %      |
+| 500 connections, 1 replica                    | 100 %      | 7,500 / 7,500        | 244 / 520 / 547 ms                  | 105 / 115 / 312 ms      | ≤ 34 %       | ≤ 43 %      |
+| 1,000 connections, 1 replica                  | 100 %      | 15,000 / 15,000      | 236 / 502 / 551 ms                  | 108 / 117 / 426 ms      | ≤ 33 %       | ≤ 44 %      |
+| 500 connections, **2 replicas**               | 100 %      | 7,475 / 7,475        | 275 / 503 / 547 ms                  | 105 / 112 / 265 ms      | ≤ 26 %       | ≤ 29 %      |
+| 1,000 at once (**storm**, RAMP=0), 2 replicas | 100 %      | 14,950 / 14,950      | 272 / 500 / 513 ms                  | 3.0 s / 5.1 s / 5.5 s   | ≤ 40 %       | ≤ 61 %      |
+
+- **Notification latency does not depend on the connection count.** Its p95 of about 0.5 s is set
+  by the outbox publisher's 500 ms poll interval. One replica at 1,000 open connections used a third
+  of its CPU, so 1,000 is not this service's limit. Higher counts were not tested; the 2-vCPU load
+  generator is the practical limit of this harness.
+- **Multiple replicas.** Clients were spread across both replicas: the new replica's own broadcast
+  counter rose from 0 to 3,887 during the run (`replicas.txt`). Every client received every event,
+  so the one-consumer-group-per-replica fanout (ADR-017) works as deployed, without Redis Pub/Sub.
+- **Reconnect storm.** 1,000 simultaneous connects were all accepted, with no auth timeouts and no
+  server closes. Connection setup slowed to 3–5 s while the upgrades queued, and live delivery
+  latency was unchanged.
+  - k6 connects without the web client's exponential backoff and jitter, which is covered by the
+    web unit tests. This run tests the server side of a storm.
+- **Slow clients** (bounded send buffer) were not exercised on AWS. They are covered by the
+  realtime integration tests (backpressure), which can control a client's read rate.
+- **Load-generator caveat.** The first WebSocket runs were invalid: the harness busy-waited and
+  starved k6 (bug ledger #28). They are kept under `results/invalid/`.
