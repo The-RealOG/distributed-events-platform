@@ -1,0 +1,13 @@
+process_cpu_user_seconds_total{service="activity-service"} 600.6175440000004
+process_cpu_system_seconds_total{service="activity-service"} 126.32866899999999
+process_cpu_seconds_total{service="activity-service"} 726.9462129999997
+process_start_time_seconds{service="activity-service"} 1792247344
+process_resident_memory_bytes{service="activity-service"} 116527104
+process_virtual_memory_bytes{service="activity-service"} 1222565888
+process_heap_bytes{service="activity-service"} 702046208
+process_open_fds{service="activity-service"} 24
+process_max_fds{service="activity-service"} 65535
+nodejs_eventloop_lag_seconds{service="activity-service"} 0.001758621
+nodejs_eventloop_lag_min_seconds{service="activity-service"} 0.005664768
+nodejs_eventloop_lag_max_seconds{service="activity-service"} 0.089915391
+nodejs_eventloop_lag_mean_seconds{service="activity-service"} 0.010131384377865444
