@@ -2,7 +2,7 @@
 #   docker build -f infrastructure/docker/web.Dockerfile \
 #     --build-arg VITE_API_BASE_URL=http://localhost:3000/api .
 # Exact versions, so a rebuild of the same commit gets the same base; Dependabot proposes updates.
-ARG NODE_IMAGE=node:24.21.0-alpine3.23
+ARG NODE_IMAGE=node:24.21.0-alpine3.24
 
 FROM ${NODE_IMAGE} AS prune
 WORKDIR /repo
@@ -26,7 +26,7 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} VITE_DEV_LOGIN_ENABLED=${VITE_DEV_LOG
 RUN test -n "$VITE_API_BASE_URL" && npx turbo run build --filter=@dpp/web...
 
 # Runs as a non-root user and listens on 8080.
-FROM nginxinc/nginx-unprivileged:1.29.8-alpine3.23 AS runtime
+FROM nginxinc/nginx-unprivileged:1.30.6-alpine3.24 AS runtime
 COPY infrastructure/docker/web-nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 EXPOSE 8080

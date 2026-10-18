@@ -2,7 +2,7 @@
 #   docker build -f infrastructure/docker/node-service.Dockerfile \
 #     --build-arg APP=@dpp/project-service --build-arg APP_DIR=apps/project-service .
 # Exact versions, so a rebuild of the same commit gets the same base; Dependabot proposes updates.
-ARG NODE_IMAGE=node:24.21.0-alpine3.23
+ARG NODE_IMAGE=node:24.21.0-alpine3.24
 
 # 1. Reduce the monorepo to the target service and its internal dependencies.
 FROM ${NODE_IMAGE} AS prune
@@ -52,7 +52,8 @@ COPY --from=prod-deps --chown=node:node /app ./
 COPY --from=build --chown=node:node /deploy ./
 # Public CA bundle for TLS to Amazon RDS (used when DATABASE_TLS_CA_FILE points at it).
 COPY --chown=node:node infrastructure/certs/ /app/certs/
-USER node
+# The image's `node` user, by ID so the runtime can verify it is not root without a passwd lookup.
+USER 1000
 WORKDIR /app/${APP_DIR}
 # tini-less: Node is PID 1 but installs its own SIGTERM/SIGINT handlers in every service.
 CMD ["node", "dist/server.js"]
