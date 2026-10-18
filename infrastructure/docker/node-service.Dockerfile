@@ -43,8 +43,10 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
 FROM ${NODE_IMAGE} AS runtime
 ARG APP_DIR
 ENV NODE_ENV=production
-# Services start with `node` directly; the package managers are only attack surface here.
-RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+# OS security fixes published since the base image was built (the CI scan fails on any fixable
+# HIGH/CRITICAL). Services start with `node` directly; the package managers are only attack surface.
+RUN apk upgrade --no-cache \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
       /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-* \
       /usr/local/bin/yarn /usr/local/bin/yarnpkg
 WORKDIR /app

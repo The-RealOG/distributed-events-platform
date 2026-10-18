@@ -27,6 +27,11 @@ RUN test -n "$VITE_API_BASE_URL" && npx turbo run build --filter=@dpp/web...
 
 # Runs as a non-root user and listens on 8080.
 FROM nginxinc/nginx-unprivileged:1.30.6-alpine3.24 AS runtime
+# OS security fixes published since the base image was built (the CI scan fails on any fixable
+# HIGH/CRITICAL), then back to the image's unprivileged nginx user.
+USER root
+RUN apk upgrade --no-cache
+USER 101
 COPY infrastructure/docker/web-nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 EXPOSE 8080
