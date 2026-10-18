@@ -31,8 +31,8 @@ export async function buildApp(
     logger: createLoggerOptions(SERVICE_NAME, config.LOG_LEVEL),
     ...requestIdOptions(),
     bodyLimit: config.BODY_LIMIT_BYTES,
-    // Nothing sits in front of the gateway locally, so X-Forwarded-For from clients is not
-    // trusted (it would let callers spoof their IP). Enable for the ALB in deployment.
+    // X-Forwarded-For is not trusted: it would let callers spoof their address. Behind the ALB,
+    // request.ip is therefore the load balancer's (see rateLimitKey).
     trustProxy: false,
   });
   registerRequestContext(app);
@@ -104,8 +104,11 @@ export async function buildApp(
 }
 
 /**
- * The rate-limit bucket: one per user (a hash of the bearer token, never the token itself), so
- * many users behind one address are limited independently. Requests without a token fall back
+ * The rate-limit bucket: one per bearer token (a hash, never the token itself), so many users
+ * behind one address are limited independently. The gateway does not verify the token (the
+ * Project Service does), so the bucket is per token, not per verified user: a client that sends a
+ * different made-up token on every request gets a fresh bucket each time. Those requests are
+ * rejected with 401 upstream, but they are not limited here. Requests without a token fall back
  * to the caller's address, which behind the ALB is the load balancer's (trustProxy is off), so
  * unauthenticated requests then share one bucket.
  */

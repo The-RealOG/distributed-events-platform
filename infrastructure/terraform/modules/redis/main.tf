@@ -1,5 +1,5 @@
-# Valkey (Redis-compatible) on ElastiCache for the shared board cache. Disabled by default: nothing
-# uses it yet, and an idle node costs money every hour. Set enable_redis = true when needed.
+# Valkey (Redis-compatible) on ElastiCache for the shared board cache (ADR-015). Created only when
+# `enabled` (the dev environment's enable_redis, true by default); a node costs money every hour.
 variable "name" { type = string }
 variable "enabled" { type = bool }
 variable "subnet_ids" { type = list(string) }
