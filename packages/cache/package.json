@@ -20,8 +20,8 @@
     "@dpp/contracts": "*",
     "@dpp/observability": "*",
     "ioredis": "^5.11.1",
-    "pino": "^10.3.1",
-    "zod": "^4.6.5"
+    "pino": "^10.4.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@dpp/test-utils": "*"

@@ -15,9 +15,9 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@testcontainers/postgresql": "^12.1.0",
+    "@testcontainers/postgresql": "^12.2.1",
     "kafkajs": "^2.2.4",
-    "pg": "^8.23.0",
+    "pg": "^8.23.1",
     "testcontainers": "^12.1.0"
   },
   "devDependencies": {
