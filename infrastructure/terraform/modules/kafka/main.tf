@@ -7,6 +7,10 @@ variable "subnet_ids" { type = list(string) }
 variable "security_group_id" { type = string }
 variable "broker_volume_gb" { type = number }
 
+# min.insync.replicas=2 with replication factor 2: an acks=-1 publish succeeds only once both
+# brokers have the event, so an acknowledged event survives the loss of either broker. The cost is
+# availability: while a broker is down, publishes (and consumer offset commits) fail and are
+# retried, so events wait in the outbox. HTTP writes are unaffected.
 resource "aws_msk_configuration" "this" {
   # Versioned name: a version change creates the new configuration before deleting the old one.
   name              = "${var.name}-${replace(var.kafka_version, ".", "-")}"
@@ -14,7 +18,7 @@ resource "aws_msk_configuration" "this" {
   server_properties = <<-PROPERTIES
     auto.create.topics.enable=false
     default.replication.factor=2
-    min.insync.replicas=1
+    min.insync.replicas=2
     num.partitions=3
     delete.topic.enable=true
   PROPERTIES

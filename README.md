@@ -222,8 +222,9 @@ reasoning behind each choice is recorded in [docs/adr/](docs/adr/).
 
 ## Limitations
 
-- **Kafka durability.** The development MSK cluster runs `min.insync.replicas=1`. During a
-  broker outage, an acknowledged event can exist on one broker only.
+- **Kafka favours durability over availability.** MSK runs `min.insync.replicas=2`, so a broker
+  outage pauses event publication (events wait in the outbox) instead of risking acknowledged
+  events. This is configured in Terraform but not yet re-verified on AWS.
 - **Rate limits are per gateway task.** Each user is limited (600 requests/min by default), but
   the counters are in memory, so the effective limit grows with the number of gateway tasks.
 - **Development-sized AWS environment.** It runs one task per service, single-AZ RDS on a

@@ -406,9 +406,9 @@ await demo(
       Date.now(),
     );
     record(
-      'MSK broker reboot (1 of 2): writes and event flow continue through leader failover',
+      'MSK broker reboot (1 of 2): HTTP writes continue; events wait in the outbox, then flow again',
       ok.length === writes.length,
-      `cluster back to ACTIVE after ${Math.round(ms / 1000)} s; ${ok.length}/${writes.length} writes OK during the reboot; publisher 'publish failed' log lines: ${errors.length}; the last write reached activity ${Math.round(caught / 1000)} s after the cluster was ACTIVE`,
+      `cluster back to ACTIVE after ${Math.round(ms / 1000)} s; ${ok.length}/${writes.length} writes OK during the reboot; publisher 'publish failed' log lines (expected with min.insync.replicas=2): ${errors.length}; the last write reached activity ${Math.round(caught / 1000)} s after the cluster was ACTIVE`,
     );
   },
 );
