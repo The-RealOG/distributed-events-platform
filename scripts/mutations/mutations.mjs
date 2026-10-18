@@ -1269,9 +1269,10 @@ export const mutations = [
     edits: [
       {
         file: ATT_SERVICE,
-        find: '    if (ready) return toDto(ready);',
+        // The whole fallback: an early return alone leaves unreachable code that fails to compile.
+        find: "    if (ready) return toDto(ready);\n    // No longer pending: a concurrent finalization won (ready), or the sweep abandoned the\n    // upload after the HEAD above (deleted). Report the row's state, never an assumed one.\n    const [current] = await this.db.select().from(attachments).where(eq(attachments.id, row.id));\n    if (current?.status === 'ready') return toDto(current);\n    throw notFound('Attachment');\n",
         replace:
-          "    return toDto(ready ?? { ...row, status: 'ready', sizeBytes: head.sizeBytes });",
+          "    return toDto(ready ?? { ...row, status: 'ready', sizeBytes: head.sizeBytes });\n",
       },
     ],
     tests: [{ ...ATT_INT, name: 'during its finalization' }],
