@@ -11,7 +11,13 @@ import { queryKeys } from '../../lib/query/keys';
 import { useIdempotencyKey } from '../../lib/api/useIdempotencyKey';
 import { useProjectRealtime } from '../../lib/realtime/useProjectRealtime';
 import { ActivityPanel } from '../activity/ActivityPanel';
-import { applyMove, dropTarget, moveTargets, type MoveRequest } from './moves';
+import { moveTargets } from './moves';
+import {
+  cardBelowPointer,
+  TASK_DRAG_TYPE,
+  useBoardDragAndDrop,
+  type DnD,
+} from './useBoardDragAndDrop';
 import { useTaskMutations } from './useTaskMutations';
 
 type Tone = 'todo' | 'progress' | 'done';
@@ -22,32 +28,6 @@ const toneOf = (index: number, count: number): Tone =>
 interface Filters {
   text: string;
   assignee: string; // '' = anyone, 'none' = unassigned, else a user id
-}
-
-/** Drag data type for a task card; lets drop targets recognise our drags synchronously. */
-const TASK_DRAG_TYPE = 'application/x-dpp-task';
-
-/** Drag and drop state: the card being dragged and where it would land. */
-interface DragState {
-  taskId: string;
-  over?: { columnId: string; beforeTaskId: string | null } | undefined;
-}
-interface DnD {
-  drag: DragState | null;
-  start: (taskId: string) => void;
-  over: (columnId: string, beforeTaskId: string | null) => void;
-  drop: (taskId: string, columnId: string, beforeTaskId: string | null) => void;
-  end: () => void;
-}
-
-/** The card the pointer is above the middle of, i.e. the card a drop would land before. */
-function cardBelowPointer(event: DragEvent<HTMLElement>): string | null {
-  const cards = event.currentTarget.querySelectorAll<HTMLElement>('[data-task-id]');
-  for (const card of cards) {
-    const rect = card.getBoundingClientRect();
-    if (event.clientY < rect.top + rect.height / 2) return card.dataset['taskId'] ?? null;
-  }
-  return null;
 }
 
 const matches = (task: TaskDto, f: Filters) => {
@@ -71,13 +51,7 @@ export function BoardPage() {
   });
   const { move } = useTaskMutations(projectId);
   const live = useProjectRealtime(projectId);
-  const [drag, setDrag] = useState<DragState | null>(null);
-  // A dropped card is shown in its new place until the refetched board confirms it (or the
-  // move fails, which refreshes the board and reports why). Local display state only: the
-  // board itself is always the server's.
-  const [pending, setPending] = useState<{ taskId: string; to: MoveRequest; since: number } | null>(
-    null,
-  );
+  const { dnd, shown } = useBoardDragAndDrop(board.data, board.dataUpdatedAt, move);
   const workspaceId = board.data?.project.workspaceId ?? '';
   const members = useQuery({
     queryKey: queryKeys.workspaceMembers(workspaceId),
@@ -91,32 +65,8 @@ export function BoardPage() {
   if (!board.data) return <ErrorNotice error={board.error} onRetry={() => void board.refetch()} />;
 
   const { project } = board.data;
-  // Shown until a board fetched after the drop arrives (or the move fails).
-  const optimistic =
-    pending && !move.isError && board.dataUpdatedAt <= pending.since ? pending : null;
-  const shown = optimistic ? applyMove(board.data, optimistic.taskId, optimistic.to) : board.data;
-  const dnd: DnD = {
-    drag,
-    start: (taskId) => setDrag({ taskId }),
-    over: (columnId, beforeTaskId) =>
-      setDrag((d) =>
-        d && (d.over?.columnId !== columnId || d.over.beforeTaskId !== beforeTaskId)
-          ? { ...d, over: { columnId, beforeTaskId } }
-          : d,
-      ),
-    drop: (taskId, columnId, beforeTaskId) => {
-      setDrag(null);
-      if (!taskId || move.isPending) return;
-      const task = board.data.columns.flatMap((c) => c.tasks).find((t) => t.id === taskId);
-      const to = dropTarget(board.data, taskId, columnId, beforeTaskId);
-      if (!task || !to) return;
-      setPending({ taskId, to, since: board.dataUpdatedAt });
-      move.mutate({ task, to }, { onError: () => setPending(null) });
-    },
-    end: () => setDrag(null),
-  };
+  const visible = shown ?? board.data;
   const names = new Map((members.data ?? []).map((m) => [m.userId, m.displayName]));
-  const filtering = filters.text.trim() !== '' || filters.assignee !== '';
   const setView = (next: 'board' | 'activity') =>
     setParams(next === 'board' ? {} : { view: next }, { replace: true });
 
@@ -135,7 +85,7 @@ export function BoardPage() {
           )}
         </div>
         <div className="project-actions">
-          {/* No realtime yet: another user's change shows up on refresh, refocus or a conflict. */}
+          {/* Realtime already refetches on every change; this is for a user who wants to be sure. */}
           <button
             type="button"
             className="btn btn-ghost"
@@ -190,49 +140,14 @@ export function BoardPage() {
         <ActivityPanel board={board.data} variant="page" />
       ) : (
         <>
-          <div className="toolbar">
-            <label className="search-field">
-              <Icon name="search" size={16} />
-              <span className="visually-hidden">Filter tasks</span>
-              <input
-                type="search"
-                placeholder="Filter tasks…"
-                value={filters.text}
-                onChange={(e) => setFilters({ ...filters, text: e.target.value })}
-              />
-            </label>
-            <label className="select-inline">
-              <span className="visually-hidden">Assignee</span>
-              <select
-                value={filters.assignee}
-                onChange={(e) => setFilters({ ...filters, assignee: e.target.value })}
-              >
-                <option value="">Assignee: anyone</option>
-                <option value="none">Unassigned</option>
-                {(members.data ?? []).map((m) => (
-                  <option key={m.userId} value={m.userId}>
-                    {m.displayName}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {filtering && (
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => setFilters({ text: '', assignee: '' })}
-              >
-                <Icon name="x" size={14} /> Clear
-              </button>
-            )}
-          </div>
+          <BoardToolbar filters={filters} setFilters={setFilters} members={members.data ?? []} />
 
           <div className="board-layout">
             <div className="board">
-              {shown.columns.map((column, index) => (
+              {visible.columns.map((column, index) => (
                 <Column
                   key={column.id}
-                  board={shown}
+                  board={visible}
                   dnd={dnd}
                   column={column}
                   tone={toneOf(index, board.data.columns.length)}
@@ -249,6 +164,56 @@ export function BoardPage() {
       )}
       <Outlet context={board.data} />
     </section>
+  );
+}
+
+function BoardToolbar({
+  filters,
+  setFilters,
+  members,
+}: {
+  filters: Filters;
+  setFilters: (f: Filters) => void;
+  members: { userId: string; displayName: string }[];
+}) {
+  const filtering = filters.text.trim() !== '' || filters.assignee !== '';
+  return (
+    <div className="toolbar">
+      <label className="search-field">
+        <Icon name="search" size={16} />
+        <span className="visually-hidden">Filter tasks</span>
+        <input
+          type="search"
+          placeholder="Filter tasks…"
+          value={filters.text}
+          onChange={(e) => setFilters({ ...filters, text: e.target.value })}
+        />
+      </label>
+      <label className="select-inline">
+        <span className="visually-hidden">Assignee</span>
+        <select
+          value={filters.assignee}
+          onChange={(e) => setFilters({ ...filters, assignee: e.target.value })}
+        >
+          <option value="">Assignee: anyone</option>
+          <option value="none">Unassigned</option>
+          {members.map((m) => (
+            <option key={m.userId} value={m.userId}>
+              {m.displayName}
+            </option>
+          ))}
+        </select>
+      </label>
+      {filtering && (
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => setFilters({ text: '', assignee: '' })}
+        >
+          <Icon name="x" size={14} /> Clear
+        </button>
+      )}
+    </div>
   );
 }
 
