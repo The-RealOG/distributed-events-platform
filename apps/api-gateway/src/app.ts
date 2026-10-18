@@ -43,7 +43,15 @@ export async function buildApp(
   await app.register(cors, {
     origin: config.CORS_ORIGINS,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
-    allowedHeaders: ['authorization', 'content-type', 'x-correlation-id'],
+    // Every non-safelisted header the web client sends must be listed, or the browser's preflight
+    // fails: cache-control (read-your-writes reads) and idempotency-key (retry-safe creates).
+    allowedHeaders: [
+      'authorization',
+      'cache-control',
+      'content-type',
+      'idempotency-key',
+      'x-correlation-id',
+    ],
     exposedHeaders: ['x-request-id', 'x-correlation-id'],
     maxAge: 600,
   });

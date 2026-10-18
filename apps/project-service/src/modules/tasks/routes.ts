@@ -2,6 +2,7 @@ import type { AuthProvider } from '@dpp/auth';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { contextOf, principalOf, requireAuthentication } from '../../http/authenticate.js';
+import { idempotencyOf } from '../../http/idempotency.js';
 import { idParams } from '../../http/schemas.js';
 import {
   assignBody,
@@ -26,7 +27,14 @@ export const taskRoutes: FastifyPluginAsyncZod<{
     '/tasks',
     { schema: { body: createTaskBody, response: { 201: taskDto } } },
     async (request, reply) =>
-      reply.code(201).send(await service.create(contextOf(request), request.body)),
+      reply
+        .code(201)
+        .send(
+          await service.create(
+            { ...contextOf(request), idempotency: idempotencyOf(request) },
+            request.body,
+          ),
+        ),
   );
 
   app.get('/tasks/:id', { schema: { params: idParams, response: { 200: taskDto } } }, (request) =>
@@ -81,6 +89,12 @@ export const taskRoutes: FastifyPluginAsyncZod<{
     async (request, reply) =>
       reply
         .code(201)
-        .send(await service.addComment(contextOf(request), request.params.id, request.body.body)),
+        .send(
+          await service.addComment(
+            { ...contextOf(request), idempotency: idempotencyOf(request) },
+            request.params.id,
+            request.body.body,
+          ),
+        ),
   );
 };

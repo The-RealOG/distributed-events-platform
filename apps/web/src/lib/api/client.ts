@@ -17,6 +17,8 @@ export interface RequestOptions<S extends z.ZodType | undefined> {
   /** Runtime check of the response. Omit only for endpoints that return no body (204). */
   schema?: S;
   signal?: AbortSignal | undefined;
+  /** Makes a create request safe to retry: the server applies one key at most once. */
+  idempotencyKey?: string | undefined;
 }
 
 type Result<S> = S extends z.ZodType ? z.infer<S> : undefined;
@@ -41,7 +43,7 @@ export class ApiClient {
   async request<S extends z.ZodType | undefined = undefined>(
     method: HttpMethod,
     path: string,
-    { body, schema, signal }: RequestOptions<S> = {},
+    { body, schema, signal, idempotencyKey }: RequestOptions<S> = {},
   ): Promise<Result<S>> {
     const headers: Record<string, string> = {
       accept: 'application/json',
@@ -51,6 +53,7 @@ export class ApiClient {
     const token = this.options.getToken();
     if (token) headers['authorization'] = `Bearer ${token}`;
     if (body !== undefined) headers['content-type'] = 'application/json';
+    if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
     if (method === 'GET' && Date.now() - this.#lastWriteAt < READ_YOUR_WRITES_MS) {
       headers['cache-control'] = 'no-cache';
     }

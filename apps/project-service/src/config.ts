@@ -47,6 +47,8 @@ const envSchema = baseEnvSchema
     ATTACHMENT_DOWNLOAD_URL_TTL_SECONDS: z.coerce.number().int().min(10).max(3_600).default(60),
     ATTACHMENT_PENDING_TTL_SECONDS: z.coerce.number().int().min(60).default(3_600),
     ATTACHMENT_SWEEP_INTERVAL_MS: z.coerce.number().int().min(1_000).default(600_000),
+    // How long a create request's Idempotency-Key replays its response. Longer than any retry.
+    IDEMPOTENCY_KEY_TTL_HOURS: z.coerce.number().int().min(1).default(24),
   })
   .refine((c) => !c.CACHE_ENABLED || c.REDIS_URL !== undefined, {
     path: ['REDIS_URL'],

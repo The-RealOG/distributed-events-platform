@@ -334,3 +334,30 @@ export const attachments = pgTable(
       ),
   ],
 );
+
+/**
+ * Idempotency keys for create requests (`Idempotency-Key` header). A key is claimed in the same
+ * transaction as the change it protects and stores that change's response, so a retried request
+ * either replays the committed response or, if the first attempt rolled back, runs again. Keys
+ * belong to one user; they are deleted after IDEMPOTENCY_KEY_TTL_HOURS.
+ */
+export const idempotencyKeys = pgTable(
+  'idempotency_keys',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    key: text('key').notNull(),
+    // SHA-256 of method, path and body: the same key with a different request is refused.
+    requestHash: text('request_hash').notNull(),
+    // Written in the claiming transaction, so they are never null once the row is visible.
+    responseStatus: integer('response_status'),
+    responseBody: jsonb('response_body'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ name: 'idempotency_keys_pkey', columns: [t.userId, t.key] }),
+    check('idempotency_keys_key_length', sql`length(${t.key}) between 1 and 255`),
+    index('idempotency_keys_created_at_idx').on(t.createdAt),
+  ],
+);

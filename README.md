@@ -213,7 +213,8 @@ optimistic concurrency (a stale `expectedVersion` returns 409). Each change writ
 event in the same transaction through a **transactional outbox**, so an event can never
 disagree with committed state, and a separate publisher delivers events to Kafka **at least
 once**. Because duplicates are expected, consumers are **idempotent**: each records the
-processed event ID in the same transaction as its side effect. Redis is a **disposable
+processed event ID in the same transaction as its side effect. Create requests accept an
+`Idempotency-Key`, so a client can retry them safely. Redis is a **disposable
 cache** that is never written by the request path and is invalidated from Kafka events;
 losing it only costs speed. Realtime WebSocket messages are **notifications, not state**: the
 client refetches from the API, so a missed message never leaves it permanently stale. The
@@ -223,8 +224,6 @@ reasoning behind each choice is recorded in [docs/adr/](docs/adr/).
 
 - **Kafka durability.** The development MSK cluster runs `min.insync.replicas=1`. During a
   broker outage, an acknowledged event can exist on one broker only.
-- **Retried requests.** `POST` requests are not idempotent: a client that retries after a lost
-  response can create a duplicate task. Updates and moves are protected by version checks.
 - **No rate limiting.** There is none at the edge or in the gateway.
 - **Outbox table growth.** Published outbox rows are not yet pruned.
 - **Development-sized AWS environment.** It runs one task per service, single-AZ RDS on a

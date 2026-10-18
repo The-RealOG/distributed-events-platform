@@ -8,6 +8,7 @@ import { Icon } from '../../components/Icon';
 import { describeError } from '../../lib/api/errors';
 import { useApi } from '../../lib/AppProviders';
 import { queryKeys } from '../../lib/query/keys';
+import { useIdempotencyKey } from '../../lib/api/useIdempotencyKey';
 import { useProjectRealtime } from '../../lib/realtime/useProjectRealtime';
 import { ActivityPanel } from '../activity/ActivityPanel';
 import { applyMove, dropTarget, moveTargets, type MoveRequest } from './moves';
@@ -271,6 +272,7 @@ function Column({
   onCompose: (open: boolean) => void;
 }) {
   const { create } = useTaskMutations(board.project.id);
+  const idempotencyKeys = useIdempotencyKey();
   const [title, setTitle] = useState('');
   const visible = column.tasks.filter((t) => matches(t, filters));
   const target = dnd.drag?.over?.columnId === column.id ? dnd.drag.over : undefined;
@@ -294,10 +296,12 @@ function Column({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (create.isPending) return;
+    const draft = { columnId: column.id, title: title.trim() };
     create.mutate(
-      { columnId: column.id, title: title.trim() },
+      { ...draft, idempotencyKey: idempotencyKeys.for(`${draft.columnId}\n${draft.title}`) },
       {
         onSuccess: () => {
+          idempotencyKeys.reset();
           setTitle('');
           onCompose(false);
         },

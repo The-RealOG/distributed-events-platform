@@ -41,10 +41,13 @@ consumer, and every read model converges to PostgreSQL, within the Kafka durabil
   - The outbox would already have marked it published, so it would not be resent, and the change
     would never be announced to consumers.
   - `min.insync.replicas=2` trades this for failed, retried publishes during a broker outage.
-- **HTTP requests are not idempotent.** Consumer-side idempotency does not make a retried `POST`
-  safe: a client that retries `POST /tasks` after a lost response creates a second task. Updates
-  and moves are protected by `expectedVersion` (409 on a stale retry). There are no idempotency
-  keys.
+- **Retried creates are safe with an `Idempotency-Key`.** `POST /tasks` and
+  `POST /tasks/:id/comments` accept the header. The key is claimed in the same transaction as the
+  change and stores its response: a retry replays it, a concurrent duplicate waits and then
+  replays it, the same key with a different request is refused (422), and a rolled-back attempt
+  frees the key. Keys are per user and expire after 24 h. The web client sends one per draft.
+  Requests without the header are not deduplicated. Updates and moves are protected by
+  `expectedVersion` instead.
 - **Timeouts say whether a retry is safe.** Pool-acquisition and connection failures, and
   statements cancelled by the server's `statement_timeout` (which roll back), return
   **503 DEPENDENCY_UNAVAILABLE**: nothing was applied. When a response simply did not arrive in

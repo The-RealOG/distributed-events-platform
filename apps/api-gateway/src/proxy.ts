@@ -30,6 +30,8 @@ const FORWARDED_REQUEST_HEADERS = [
   'cache-control',
   'content-length',
   'content-type',
+  // Makes a create request safe to retry; the project service stores and replays its result.
+  'idempotency-key',
   'user-agent',
 ];
 

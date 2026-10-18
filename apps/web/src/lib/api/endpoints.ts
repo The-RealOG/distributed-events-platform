@@ -53,8 +53,10 @@ export function createApi(client: ApiClient) {
         signal,
       }),
 
-    createTask: (input: { projectId: string; columnId: string; title: string }) =>
-      r('POST', '/tasks', { body: input, schema: taskDto }),
+    createTask: (
+      input: { projectId: string; columnId: string; title: string },
+      idempotencyKey?: string,
+    ) => r('POST', '/tasks', { body: input, schema: taskDto, idempotencyKey }),
     getTask: (taskId: string, signal?: AbortSignal) =>
       r('GET', `/tasks/${id(taskId)}`, { schema: taskDto, signal }),
     updateTask: (
@@ -86,7 +88,11 @@ export function createApi(client: ApiClient) {
     deleteAttachment: (attachmentId: string) => r('DELETE', `/attachments/${id(attachmentId)}`),
     listComments: (taskId: string, signal?: AbortSignal) =>
       r('GET', `/tasks/${id(taskId)}/comments`, { schema: z.array(commentDto), signal }),
-    addComment: (taskId: string, body: string) =>
-      r('POST', `/tasks/${id(taskId)}/comments`, { body: { body }, schema: commentDto }),
+    addComment: (taskId: string, body: string, idempotencyKey?: string) =>
+      r('POST', `/tasks/${id(taskId)}/comments`, {
+        body: { body },
+        schema: commentDto,
+        idempotencyKey,
+      }),
   };
 }

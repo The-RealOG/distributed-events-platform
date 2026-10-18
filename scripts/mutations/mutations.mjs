@@ -112,6 +112,7 @@ const PS_ERRORS_UNIT = {
   config: 'vitest.config.ts',
   files: ['src/http/errors.test.ts'],
 };
+const PS_IDEMPOTENCY = 'apps/project-service/src/http/idempotency.ts';
 const DB_UNIT = {
   cwd: 'packages/database',
   config: 'vitest.config.ts',
@@ -1307,5 +1308,18 @@ export const mutations = [
       },
     ],
     tests: [{ ...PS_ERRORS_UNIT, name: 'timed-out mutation' }],
+  },
+  {
+    id: 'p10-05-idempotency-key-not-checked',
+    phase: 10,
+    title: 'a retried create with the same Idempotency-Key creates a second task',
+    edits: [
+      {
+        file: PS_IDEMPOTENCY,
+        find: '  if (!idempotency) return create();',
+        replace: '  if (!idempotency || idempotency) return create();',
+      },
+    ],
+    tests: [{ ...PS, files: ['test/idempotency.int.test.ts'], name: 'replays the first response' }],
   },
 ];

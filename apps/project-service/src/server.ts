@@ -6,6 +6,7 @@ import { installGracefulShutdown } from '@dpp/runtime';
 import { pino } from 'pino';
 import { buildApp, SERVICE_NAME, type AppState } from './app.js';
 import { loadProjectServiceConfig } from './config.js';
+import { deleteExpiredIdempotencyKeys } from './http/idempotency.js';
 import { AttachmentService } from './modules/attachments/service.js';
 import { BoardCache } from './modules/projects/board-cache.js';
 import { S3ObjectStorage } from '@dpp/storage';
@@ -87,19 +88,21 @@ if (config.AUTH_DEV_LOGIN_ENABLED) {
   log.warn('dev login is enabled: POST /auth/dev-login issues tokens without a password');
 }
 
-// Converge attachment metadata and objects. One replica at a time: a transaction-scoped advisory
-// lock (released on commit) skips the run if another replica is sweeping.
+// Periodic maintenance: expire idempotency keys and converge attachment metadata and objects. One
+// replica at a time: a transaction-scoped advisory lock (released on commit) skips the run if
+// another replica is sweeping.
 const SWEEP_LOCK = 4_217_001;
 const sweep = setInterval(() => {
-  if (!attachments) return;
   void database.db
     .transaction(async (tx) => {
       const lock = await tx.execute<{ locked: boolean }>(
         sql`SELECT pg_try_advisory_xact_lock(${SWEEP_LOCK}) AS locked`,
       );
-      if (lock.rows[0]?.locked) await attachments.sweep();
+      if (!lock.rows[0]?.locked) return;
+      await deleteExpiredIdempotencyKeys(tx, config.IDEMPOTENCY_KEY_TTL_HOURS);
+      if (attachments) await attachments.sweep();
     })
-    .catch((err: unknown) => log.warn({ err }, 'attachment sweep failed; will retry'));
+    .catch((err: unknown) => log.warn({ err }, 'maintenance sweep failed; will retry'));
 }, config.ATTACHMENT_SWEEP_INTERVAL_MS);
 sweep.unref();
 
@@ -111,7 +114,7 @@ installGracefulShutdown({
   },
   // Drain HTTP first; in-flight requests still need the pool.
   steps: [
-    { name: 'attachment-sweep', run: async () => clearInterval(sweep) },
+    { name: 'maintenance-sweep', run: async () => clearInterval(sweep) },
     { name: 'http', run: () => app.close() },
     { name: 'database', run: () => database.close() },
     ...(redis

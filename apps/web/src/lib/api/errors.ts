@@ -69,6 +69,7 @@ function kindFromCode(code: ErrorCode): ApiErrorKind {
       return 'version_conflict';
     case 'CONFLICT':
     case 'UPLOAD_INCOMPLETE':
+    case 'IDEMPOTENCY_KEY_REUSED':
       return 'conflict';
     case 'PAYLOAD_TOO_LARGE':
       return 'payload_too_large';

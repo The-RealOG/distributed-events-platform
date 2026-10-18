@@ -4,6 +4,7 @@ import { requireProjectRole, requireTaskRole } from '../../domain/access.js';
 import { REQUIRED_ROLE } from '../../domain/roles.js';
 import type { RequestContext } from '../../http/authenticate.js';
 import { badRequest, notFound, versionConflict } from '../../http/errors.js';
+import { createOnce } from '../../http/idempotency.js';
 import { iso } from '../../http/schemas.js';
 import { findUserById } from '../identity/repository.js';
 import { findMemberRole } from '../workspaces/repository.js';
@@ -80,12 +81,14 @@ export class TaskService {
   ): Promise<TaskDto> {
     return this.db.transaction(async (tx) => {
       await requireProjectRole(tx, ctx.principal.userId, input.projectId, REQUIRED_ROLE.editTasks);
-      if (!(await findColumnInProject(tx, input.columnId, input.projectId))) {
-        throw badRequest('Column does not belong to this project', { field: 'columnId' });
-      }
-      const task = await insertTask(tx, { ...input, createdBy: ctx.principal.userId });
-      await insertOutboxEvent(tx, buildTaskEvent.created(ctx, task));
-      return toTaskDto(task, []);
+      return createOnce(tx, ctx.principal.userId, ctx.idempotency, async () => {
+        if (!(await findColumnInProject(tx, input.columnId, input.projectId))) {
+          throw badRequest('Column does not belong to this project', { field: 'columnId' });
+        }
+        const task = await insertTask(tx, { ...input, createdBy: ctx.principal.userId });
+        await insertOutboxEvent(tx, buildTaskEvent.created(ctx, task));
+        return toTaskDto(task, []);
+      });
     });
   }
 
@@ -229,18 +232,20 @@ export class TaskService {
         taskId,
         REQUIRED_ROLE.comment,
       );
-      const author = await findUserById(tx, ctx.principal.userId);
-      if (!author) throw notFound('User');
-      const comment = await insertComment(tx, { taskId, authorId: author.id, body });
-      await insertOutboxEvent(tx, buildCommentCreated(ctx, comment, task));
-      return {
-        id: comment.id,
-        taskId: comment.taskId,
-        authorId: comment.authorId,
-        authorDisplayName: author.displayName,
-        body: comment.body,
-        createdAt: iso(comment.createdAt),
-      };
+      return createOnce(tx, ctx.principal.userId, ctx.idempotency, async () => {
+        const author = await findUserById(tx, ctx.principal.userId);
+        if (!author) throw notFound('User');
+        const comment = await insertComment(tx, { taskId, authorId: author.id, body });
+        await insertOutboxEvent(tx, buildCommentCreated(ctx, comment, task));
+        return {
+          id: comment.id,
+          taskId: comment.taskId,
+          authorId: comment.authorId,
+          authorDisplayName: author.displayName,
+          body: comment.body,
+          createdAt: iso(comment.createdAt),
+        };
+      });
     });
   }
 

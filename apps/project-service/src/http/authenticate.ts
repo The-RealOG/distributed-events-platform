@@ -1,6 +1,7 @@
 import { parseBearerToken, type AuthProvider, type Principal } from '@dpp/auth';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { unauthenticated } from './errors.js';
+import type { IdempotentRequest } from './idempotency.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -36,6 +37,8 @@ export interface RequestContext {
   principal: Principal;
   /** The request's correlation ID; carried unchanged into every event the request causes. */
   correlationId: string;
+  /** Present only on create requests that sent an Idempotency-Key. */
+  idempotency?: IdempotentRequest | undefined;
 }
 
 export function contextOf(request: FastifyRequest): RequestContext {

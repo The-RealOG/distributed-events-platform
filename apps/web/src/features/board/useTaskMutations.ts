@@ -40,8 +40,14 @@ export function useTaskMutations(projectId: string) {
   };
 
   const create = useMutation({
-    mutationFn: (input: { columnId: string; title: string }) =>
-      api.createTask({ projectId, ...input }),
+    mutationFn: ({
+      idempotencyKey,
+      ...input
+    }: {
+      columnId: string;
+      title: string;
+      idempotencyKey: string;
+    }) => api.createTask({ projectId, ...input }, idempotencyKey),
     onSuccess: (task) => {
       storeTask(task);
       void refreshBoard();

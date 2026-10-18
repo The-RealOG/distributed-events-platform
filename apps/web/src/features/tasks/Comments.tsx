@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
+import { useIdempotencyKey } from '../../lib/api/useIdempotencyKey';
 import { ErrorNotice, Loading } from '../../components/ErrorNotice';
 import { describeError } from '../../lib/api/errors';
 import { useApi } from '../../lib/AppProviders';
@@ -13,9 +14,14 @@ export function Comments({ taskId }: { taskId: string }) {
     queryKey: queryKeys.taskComments(taskId),
     queryFn: ({ signal }) => api.listComments(taskId, signal),
   });
+  const idempotencyKeys = useIdempotencyKey();
   const add = useMutation({
-    mutationFn: () => api.addComment(taskId, body.trim()),
+    mutationFn: () => {
+      const text = body.trim();
+      return api.addComment(taskId, text, idempotencyKeys.for(text));
+    },
     onSuccess: () => {
+      idempotencyKeys.reset();
       setBody('');
       void queryClient.invalidateQueries({ queryKey: queryKeys.taskComments(taskId) });
     },

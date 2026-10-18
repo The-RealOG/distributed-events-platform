@@ -309,6 +309,42 @@ describe('browser boundary', () => {
     expect(upstream.received).toHaveLength(0);
   });
 
+  it('lets the browser send the headers the web client uses (preflight)', async () => {
+    const upstream = await withUpstream();
+    const { app } = await gatewayFor(upstream.url);
+
+    const preflight = (method: string, requestHeaders: string) =>
+      app.inject({
+        method: 'OPTIONS',
+        url: '/api/tasks',
+        headers: {
+          origin: 'http://localhost:8080',
+          'access-control-request-method': method,
+          'access-control-request-headers': requestHeaders,
+        },
+      });
+
+    // Read-your-writes GETs carry cache-control; retry-safe creates carry idempotency-key.
+    const read = await preflight('GET', 'authorization,cache-control,x-correlation-id');
+    const create = await preflight('POST', 'authorization,content-type,idempotency-key');
+    expect(read.headers['access-control-allow-headers']).toContain('cache-control');
+    expect(create.headers['access-control-allow-headers']).toContain('idempotency-key');
+  });
+
+  it('forwards the Idempotency-Key header to the project service', async () => {
+    const upstream = await withUpstream(() => ({ status: 201, body: {} }));
+    const { app } = await gatewayFor(upstream.url);
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/tasks',
+      headers: { 'content-type': 'application/json', 'idempotency-key': 'k-123' },
+      payload: '{}',
+    });
+
+    expect(upstream.received[0]!.headers['idempotency-key']).toBe('k-123');
+  });
+
   it('allows CORS only for configured origins and exposes tracing headers', async () => {
     const upstream = await withUpstream();
     const { app } = await gatewayFor(upstream.url);
