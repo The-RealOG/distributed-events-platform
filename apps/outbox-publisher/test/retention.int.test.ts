@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { OutboxRetention } from '../src/retention.js';
-import { createTestEnv, outboxRows, projectEvent, resetOutbox, seed, type TestEnv } from './support.js';
+import {
+  createTestEnv,
+  outboxRows,
+  projectEvent,
+  resetOutbox,
+  seed,
+  type TestEnv,
+} from './support.js';
 
 let env: TestEnv;
 beforeAll(async () => {
