@@ -42,13 +42,13 @@ jobs:
           - { image: cache-invalidator, app: '@dpp/cache-invalidator', dir: apps/cache-invalidator }
           - { image: realtime-service, app: '@dpp/realtime-service', dir: apps/realtime-service }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.DEPLOY_SHA }}
           fetch-depth: 0
       - name: Only commits in main's history
         run: git merge-base --is-ancestor "$DEPLOY_SHA" origin/main
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -63,11 +63,11 @@ jobs:
           if aws ecr describe-images --repository-name "${url#*/}" --image-ids imageTag=${{ env.DEPLOY_SHA }} >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
         if: steps.repo.outputs.exists != 'true'
       - name: Build and push ${{ matrix.image }}:${{ env.DEPLOY_SHA }}
         if: steps.repo.outputs.exists != 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: infrastructure/docker/node-service.Dockerfile
@@ -86,8 +86,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 24, cache: npm }
       - run: npm ci
       - name: Build (API on the same origin, behind CloudFront /api/*)
@@ -95,7 +95,7 @@ jobs:
         env:
           VITE_API_BASE_URL: /api
           VITE_DEV_LOGIN_ENABLED: 'true'
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -115,10 +115,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 24 }
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}

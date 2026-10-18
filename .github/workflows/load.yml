@@ -37,8 +37,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: actions/checkout@v7
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -69,7 +69,7 @@ jobs:
           k6 run --quiet -e BASE_URL="$BASE_URL" -e SCENARIO="$SCENARIO" -e RUN_ID="$LABEL" \
             -e SUMMARY_FILE=out/summary.json "${args[@]}" "tests/load/${SCRIPT}.js" 2>&1 | tee out/stdout.txt
           echo "exit=${PIPESTATUS[0]}" | tee -a out/runner.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: ${{ inputs.label }}

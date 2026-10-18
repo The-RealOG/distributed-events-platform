@@ -36,9 +36,9 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       run: ${{ steps.plan.outputs.run }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: 24 }
       - id: plan
         run: >-
@@ -49,10 +49,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 24, cache: npm }
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .turbo/cache
           key: turbo-static-${{ github.sha }}
@@ -68,10 +68,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 24, cache: npm }
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .turbo/cache
           key: turbo-unit-${{ github.sha }}
@@ -88,9 +88,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: 24 }
       - name: Dependency audit (production dependencies; reads the lockfile, no install needed)
         run: npm audit --omit=dev --audit-level=high
@@ -116,14 +116,14 @@ jobs:
           - { image: web, dockerfile: web.Dockerfile, args: 'VITE_API_BASE_URL=/api' }
     name: images (${{ matrix.image }})
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Lint Dockerfile
         run: |
           curl -sSfL -o hadolint https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64
           chmod +x hadolint
           ./hadolint infrastructure/docker/${{ matrix.dockerfile }}
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: infrastructure/docker/${{ matrix.dockerfile }}
@@ -157,7 +157,7 @@ jobs:
         include: ${{ fromJson(needs.plan.outputs.matrix) }}
     name: integration (${{ matrix.shard }})
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Start pulling the pinned test images while dependencies install (Testcontainers joins an
       # in-progress pull instead of starting another).
       - name: Pre-pull container images
@@ -165,9 +165,9 @@ jobs:
           for image in postgres:17-alpine apache/kafka:4.1.1 valkey/valkey:8-alpine localstack/localstack:4.14.0 testcontainers/ryuk:0.14.0; do
             nohup docker pull -q "$image" > /dev/null 2>&1 &
           done
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: 24, cache: npm }
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .turbo/cache
           key: turbo-integration-${{ matrix.shard }}-${{ github.sha }}
