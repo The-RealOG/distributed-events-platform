@@ -15,39 +15,69 @@ Decision record: [ADR-012](adr/012-aws-development-runtime.md).
 ```mermaid
 flowchart LR
   user((Browser)) -->|HTTPS| cf[CloudFront<br/>*.cloudfront.net]
+  user -->|presigned POST / GET| s3att
   subgraph aws[AWS us-east-2 · VPC 10.40.0.0/16]
-    subgraph public[public subnets · 2 AZs]
+    subgraph public[public subnets · 2 AZs · tasks have no inbound route except below]
       alb[ALB :80<br/>SG: CloudFront prefix list only<br/>+ secret origin header]
-      gw[api-gateway<br/>Fargate]
-      ps[project-service<br/>Fargate]
-      op[outbox-publisher<br/>Fargate]
+      gw[api-gateway]
+      ps[project-service]
+      rt[realtime-service]
+      op[outbox-publisher]
+      as[activity-service]
+      ci[cache-invalidator]
       jobs[one-off tasks:<br/>migrate · kafka-tools]
     end
     subgraph data[data subnets · no internet route]
       rds[(RDS PostgreSQL 17<br/>db.t4g.micro · TLS)]
       msk[(MSK 3.9<br/>2 × kafka.t3.small · IAM auth)]
+      redis[(ElastiCache Valkey<br/>cache.t4g.micro · TLS)]
     end
     s3web[(S3 web bucket<br/>private, OAC)]
-    s3att[(S3 attachments<br/>private)]
-    sm[Secrets Manager]
-    cw[CloudWatch Logs]
+    s3att[(S3 attachments<br/>private, CORS)]
   end
   cf -->|/*| s3web
   cf -->|/api/* + origin header| alb --> gw
-  gw -->|Cloud Map DNS<br/>project-service.dpp-dev.internal:3001| ps
-  ps --> rds
+  gw -->|Cloud Map :3001| ps
+  gw -->|Cloud Map :3005 WebSocket| rt
+  ps --> rds & redis
+  ps -->|sign, HEAD, delete| s3att
   op --> rds
-  op -->|9098 SASL/IAM + TLS| msk
-  jobs --> rds
-  jobs --> msk
-  gh[GitHub Actions] -->|OIDC role| ecr[ECR] & aws
+  op -->|publish| msk
+  msk --> as & ci & rt
+  as --> rds
+  ci --> redis
+  rt --> rds
+  jobs --> rds & msk
 ```
 
-Nothing in the data subnets can reach or be reached from the internet. Tasks sit in public
-subnets with public IPs **only for outbound** calls to AWS APIs (ECR, Secrets Manager, CloudWatch,
-SSM); their security groups admit no inbound traffic except from the load balancer (gateway) or the
-gateway (project-service). The ALB itself only admits CloudFront, and only forwards requests
+All services run on Fargate (0.25 vCPU, 0.5 GiB each). Nothing in the data subnets can reach or
+be reached from the internet. Tasks sit in public subnets with public IPs **only for outbound**
+calls to AWS APIs (ECR, Secrets Manager, CloudWatch, SSM), which avoids a NAT gateway; their
+security groups admit no inbound traffic except from the load balancer (gateway) or the gateway
+(project-service, realtime-service). The ALB only admits CloudFront, and only forwards requests
 carrying a secret header that this distribution adds.
+
+## Local to AWS mapping
+
+The application code is identical in both; only configuration differs (see
+[Configuration boundary](#configuration-boundary) and [configuration.md](configuration.md)).
+
+| Concern            | Local (Docker Compose)                       | AWS dev                                                                           | Terraform module             |
+| ------------------ | -------------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------- |
+| Web app            | `web` container (nginx, port 8080)           | S3 web bucket behind CloudFront (origin access control); deployed by the workflow | `object-storage`, `edge`     |
+| Public entry point | api-gateway on `localhost:3000`              | CloudFront `/api/*` → ALB → api-gateway                                           | `edge`, `load-balancer`      |
+| Services           | one container each                           | one ECS Fargate service each; `migrate` and `kafka-tools` as one-off tasks        | `ecs-cluster`, `ecs-service` |
+| Service discovery  | Compose DNS names                            | Cloud Map private namespace `dpp-dev.internal`                                    | `ecs-cluster`                |
+| PostgreSQL         | `postgres:17-alpine`                         | RDS PostgreSQL 17, single-AZ, encrypted, TLS required, 1-day backups              | `rds`                        |
+| Kafka              | single `apache/kafka` broker, plaintext      | MSK 3.9, 2 brokers, TLS + IAM auth, replication 2, `min.insync.replicas=2`        | `kafka`                      |
+| Board cache        | `valkey/valkey` container                    | ElastiCache Valkey, TLS in transit                                                | `redis`                      |
+| Attachments        | LocalStack S3 (bucket and CORS by `s3-init`) | private S3 bucket with CORS for the CloudFront origin                             | `object-storage`             |
+| Secrets            | `.env` / Compose values (fake)               | Secrets Manager: JWT key, app database user; RDS-managed master password          | `secrets`, `rds`             |
+| Images             | built locally from `infrastructure/docker`   | built by GitHub Actions, pushed to ECR (immutable tags, scan on push)             | `ecr`                        |
+| Logs               | `docker compose logs`                        | CloudWatch Logs, one group per service, short retention                           | `observability`              |
+| Deploy identity    | none                                         | GitHub OIDC → IAM role trusted for `main` only; one task role per service         | `iam`                        |
+| Network            | Compose bridge network                       | VPC with public and data subnets in 2 AZs; security group per service             | `networking`, `security`     |
+| Cost guard         | none                                         | monthly AWS Budget with email alerts                                              | `budget`                     |
 
 ## Prerequisites
 
@@ -90,24 +120,24 @@ npm run aws:test             # smoke, correlation in logs, Kafka probe, security
 
 ## Everyday commands
 
-| Command                                                      | What it does                                                                                                 |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| `npm run aws:status`                                         | account/region, app URL, deployed SHA, ECS services, ALB targets, RDS, MSK, Redis, S3, recent deploys        |
-| `npm run aws:deploy [-- --infra]`                            | deploy the pushed `main` commit (optionally Terraform first); fails loudly                                   |
-| `npm run aws:logs -- <service> [--since 1h] [--filter text]` | tail/search CloudWatch logs (`api-gateway`, `project-service`, `outbox-publisher`, `migrate`, `kafka-tools`) |
-| `npm run aws:smoke`                                          | the deployed chain end to end, including a stale edit → 409                                                  |
-| `npm run aws:test`                                           | the full cloud verification suite                                                                            |
-| `npm run aws:migrate`                                        | run migrations as a one-shot task in the VPC (also run on every deploy)                                      |
-| `npm run aws:kafka:init`                                     | create/verify `domain.events` (3) and `domain.events.dlq` (1), replication 2                                 |
-| `npm run aws:kafka:probe`                                    | produce + consume an event inside the VPC; verify schema, eventId, correlationId                             |
-| `npm run aws:exec -- <service> [cmd]`                        | shell into a running container (ECS Exec over SSM; no SSH)                                                   |
-| `npm run aws:db:tunnel`                                      | `localhost:15432` → RDS through a running task (SSM port forwarding)                                         |
-| `npm run aws:security-check`                                 | network-boundary probes from your Mac + configuration checks                                                 |
-| `npm run aws:audit`                                          | read-only audit of live AWS state (network, SGs, RDS, MSK, S3, ECR, IAM, logs, budget) + JSON inventory      |
-| `npm run aws:cost-info`                                      | what is running and its current on-demand rate (AWS Pricing API)                                             |
-| `npm run aws:rollout -- <sha>`                               | deploy (or roll back to) an already-built image SHA                                                          |
-| `npm run aws:destroy`                                        | tear down the environment (confirmation required)                                                            |
-| `npm run aws:destroy:all`                                    | …and the state bucket                                                                                        |
+| Command                                                      | What it does                                                                                            |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `npm run aws:status`                                         | account/region, app URL, deployed SHA, ECS services, ALB targets, RDS, MSK, Redis, S3, recent deploys   |
+| `npm run aws:deploy [-- --infra]`                            | deploy the pushed `main` commit (optionally Terraform first); fails loudly                              |
+| `npm run aws:logs -- <service> [--since 1h] [--filter text]` | tail/search CloudWatch logs for any service, `migrate` or `kafka-tools`                                 |
+| `npm run aws:smoke`                                          | the deployed chain end to end, including a stale edit → 409                                             |
+| `npm run aws:test`                                           | the full cloud verification suite                                                                       |
+| `npm run aws:migrate`                                        | run migrations as a one-shot task in the VPC (also run on every deploy)                                 |
+| `npm run aws:kafka:init`                                     | create/verify `domain.events` (3) and `domain.events.dlq` (1), replication 2                            |
+| `npm run aws:kafka:probe`                                    | produce + consume an event inside the VPC; verify schema, eventId, correlationId                        |
+| `npm run aws:exec -- <service> [cmd]`                        | shell into a running container (ECS Exec over SSM; no SSH)                                              |
+| `npm run aws:db:tunnel`                                      | `localhost:15432` → RDS through a running task (SSM port forwarding)                                    |
+| `npm run aws:security-check`                                 | network-boundary probes from your Mac + configuration checks                                            |
+| `npm run aws:audit`                                          | read-only audit of live AWS state (network, SGs, RDS, MSK, S3, ECR, IAM, logs, budget) + JSON inventory |
+| `npm run aws:cost-info`                                      | what is running and its current on-demand rate (AWS Pricing API)                                        |
+| `npm run aws:rollout -- <sha>`                               | deploy (or roll back to) an already-built image SHA                                                     |
+| `npm run aws:destroy`                                        | tear down the environment (confirmation required)                                                       |
+| `npm run aws:destroy:all`                                    | …and the state bucket                                                                                   |
 
 To trace one request: take the `x-correlation-id` response header (or the smoke test's
 `correlationId=` line) and run `npm run aws:logs -- project-service --since 1h --filter <id>`.
@@ -118,13 +148,13 @@ To trace one request: take the `x-correlation-id` response header (or the smoke 
 `repo:The-RealOG@168302805/distributed-events-platform@1388724647:ref:refs/heads/main`, GitHub's immutable subject with owner and repository IDs). It starts the **Deploy to AWS
 dev** workflow and watches it:
 
-1. **images**: builds `project-service`, `api-gateway`, `outbox-publisher`, `kafka-tools` on the
+1. **images**: builds the seven backend images (every service plus `kafka-tools`) on the
    GitHub runner, pushes `<repo>:<git-sha>` (tags are immutable; existing SHAs are skipped).
 2. **web**: builds the SPA with `VITE_API_BASE_URL=/api`, syncs it to the private bucket,
    invalidates `index.html`.
 3. **rollout** (`scripts/aws/rollout.sh <sha>`): registers task-definition revisions pointing at
-   the SHA → runs the migration task (stops on failure) → ensures Kafka topics → rolls the three
-   services → waits for stability → records the SHA in SSM `/dpp-dev/image-tag` → smoke test.
+   the SHA → runs the migration task (stops on failure) → ensures Kafka topics → rolls every
+   service → waits for stability → records the SHA in SSM `/dpp-dev/image-tag` → smoke test.
 
 Rollback: `npm run aws:rollout -- <previous-sha>` (images are kept; the 15 newest per repository).
 A rollout whose new tasks never become healthy is rolled back automatically by the ECS deployment
