@@ -1,6 +1,6 @@
 # ADR-020: Prometheus metrics with enforced low cardinality; Grafana dashboards as code
 
-**Status:** Accepted (Phase 9)
+**Status:** Accepted
 
 ## Context
 
@@ -39,6 +39,6 @@ per-entity values.
 
 - Locally: Prometheus + Grafana in Compose. In AWS there is **no managed Prometheus/Grafana**
   (cost); metrics are read from `/metrics` inside the VPC (ECS Exec) and correlated with
-  CloudWatch's free ECS/RDS metrics. Phase 10 used exactly that for load tests.
+  CloudWatch's free ECS/RDS metrics. The load tests used exactly that.
 - Adding a label is a deliberate act: the guard throws for the forbidden names, and review
   covers the rest.

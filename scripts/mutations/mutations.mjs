@@ -15,8 +15,12 @@ const PUBLISHER = 'apps/outbox-publisher/src/publisher.ts';
 const PUBLISH_CALL =
   'published = await this.#o.sink.publish(row.event, { key: row.partitionKey });';
 const LEASE_CHECK = 'AND (c.claimed_until IS NULL OR c.claimed_until < now())';
+// The claim's row lock. The retention query has its own FOR UPDATE SKIP LOCKED, so the match
+// includes the line that follows the claim's lock.
+const CLAIM_LOCK = '      FOR UPDATE SKIP LOCKED\n    )\n    UPDATE outbox_events AS o';
+const CLAIM_LOCK_REMOVED = '    )\n    UPDATE outbox_events AS o';
 
-// Phase 5 (idempotent consumption)
+// Idempotent consumption
 const IDEM = 'packages/database/src/idempotency.ts';
 const SYS = { cwd: 'tests', config: 'vitest.config.ts' };
 const IDEM_TESTS = [{ ...SYS, files: ['integration/idempotent-consumer.int.test.ts'] }];
@@ -40,7 +44,7 @@ const CLAIM_BLOCK = [
   '  });',
 ].join('\n');
 
-// Phases 6-7 (activity projection, shared board cache)
+// Activity projection and shared board cache
 const ACT = { cwd: 'apps/activity-service', config: 'vitest.integration.config.ts' };
 const ACT_TESTS = [{ ...ACT, files: [] }];
 const PS_ACTIVITY = [{ ...PS, files: ['test/activity.int.test.ts'] }];
@@ -71,7 +75,7 @@ const SHARED = 'packages/cache/src/shared-cache.ts';
 const INV_WORKER = 'apps/cache-invalidator/src/worker.ts';
 const TASK_SERVICE = 'apps/project-service/src/modules/tasks/service.ts';
 
-// Phase 8 (realtime; retries and the DLQ)
+// Realtime; consumer retries and the DLQ
 const RT_APP = 'apps/realtime-service/src/app.ts';
 const RT_HUB = 'apps/realtime-service/src/hub.ts';
 const RT_WORKER = 'apps/realtime-service/src/worker.ts';
@@ -93,7 +97,7 @@ const KAFKA_UNIT = {
   files: ['src/failures.test.ts'],
 };
 
-// Phase 9 (attachments)
+// Attachments
 const ATT_SERVICE = 'apps/project-service/src/modules/attachments/service.ts';
 const STORAGE = 'packages/storage/src/object-storage.ts';
 const ATT_INT = { ...PS, files: ['test/attachments.int.test.ts'] };
@@ -127,8 +131,8 @@ const DB_UNIT = {
 
 export const mutations = [
   {
-    id: 'p4-baseline',
-    phase: 4,
+    id: 'outbox-baseline',
+    group: 'outbox',
     title: 'no mutation: the targeted suites pass',
     edits: [],
     tests: [
@@ -138,8 +142,8 @@ export const mutations = [
     expect: 'pass',
   },
   {
-    id: 'p4-01-outbox-outside-transaction',
-    phase: 4,
+    id: 'outbox-01-outbox-outside-transaction',
+    group: 'outbox',
     title: 'task.created outbox insert uses the pool instead of the transaction handle',
     edits: [
       {
@@ -151,8 +155,8 @@ export const mutations = [
     tests: [{ ...PS, files: ['test/outbox.int.test.ts'], name: 'Invariant 1 \\+ 2' }],
   },
   {
-    id: 'p4-02-event-id-regenerated',
-    phase: 4,
+    id: 'outbox-02-event-id-regenerated',
+    group: 'outbox',
     title: 'publisher sends a fresh eventId on each attempt',
     edits: [
       {
@@ -167,8 +171,8 @@ export const mutations = [
     ],
   },
   {
-    id: 'p4-03-published-before-ack',
-    phase: 4,
+    id: 'outbox-03-published-before-ack',
+    group: 'outbox',
     title: 'published_at written before the Kafka send',
     edits: [
       {
@@ -181,25 +185,25 @@ export const mutations = [
     tests: [{ ...PUB, files: [] }],
   },
   {
-    id: 'p4-04a-claim-protection-removed',
-    phase: 4,
+    id: 'outbox-04a-claim-protection-removed',
+    group: 'outbox',
     title: 'claim ignores live leases and row locks',
     edits: [
       { file: OUTBOX, find: `        ${LEASE_CHECK}\n`, replace: '' },
-      { file: OUTBOX, find: '      FOR UPDATE SKIP LOCKED\n', replace: '' },
+      { file: OUTBOX, find: CLAIM_LOCK, replace: CLAIM_LOCK_REMOVED },
     ],
     tests: [{ ...PUB, files: ['test/publisher.int.test.ts'] }],
   },
   {
-    id: 'p4-04b-skip-locked-removed',
-    phase: 4,
+    id: 'outbox-04b-skip-locked-removed',
+    group: 'outbox',
     title: 'claim keeps the lease check but takes no row locks (concurrent claimers race)',
-    edits: [{ file: OUTBOX, find: '      FOR UPDATE SKIP LOCKED\n', replace: '' }],
+    edits: [{ file: OUTBOX, find: CLAIM_LOCK, replace: CLAIM_LOCK_REMOVED }],
     tests: [{ ...PUB, files: ['test/publisher.int.test.ts'], name: 'Invariant 6' }],
   },
   {
-    id: 'p4-05a-wrong-partition-key-stored',
-    phase: 4,
+    id: 'outbox-05a-wrong-partition-key-stored',
+    group: 'outbox',
     title: 'outbox row stores the task id as partition key',
     edits: [
       {
@@ -211,8 +215,8 @@ export const mutations = [
     tests: [{ ...PS, files: ['test/outbox.int.test.ts'] }],
   },
   {
-    id: 'p4-05b-partition-key-rederived',
-    phase: 4,
+    id: 'outbox-05b-partition-key-rederived',
+    group: 'outbox',
     title: 'publisher derives the key again instead of using the stored one',
     edits: [
       {
@@ -225,8 +229,8 @@ export const mutations = [
     tests: [{ ...PUB, files: ['test/publisher.int.test.ts'] }],
   },
   {
-    id: 'p4-06a-correlation-replaced-at-write',
-    phase: 4,
+    id: 'outbox-06a-correlation-replaced-at-write',
+    group: 'outbox',
     title: 'events get a new correlation ID instead of the request’s',
     edits: [
       {
@@ -238,8 +242,8 @@ export const mutations = [
     tests: [{ ...PS, files: ['test/outbox.int.test.ts'] }],
   },
   {
-    id: 'p4-06b-correlation-replaced-at-publish',
-    phase: 4,
+    id: 'outbox-06b-correlation-replaced-at-publish',
+    group: 'outbox',
     title: 'publisher replaces the stored correlation ID',
     edits: [
       {
@@ -252,8 +256,8 @@ export const mutations = [
     tests: [{ ...PUB, files: ['test/publisher.int.test.ts'] }],
   },
   {
-    id: 'p4-07-pre-mutation-version',
-    phase: 4,
+    id: 'outbox-07-pre-mutation-version',
+    group: 'outbox',
     title: 'task.updated carries the client’s expectedVersion instead of the new version',
     edits: [
       {
@@ -266,8 +270,8 @@ export const mutations = [
     tests: [{ ...PS, files: ['test/outbox.int.test.ts'] }],
   },
   {
-    id: 'p4-08-http-depends-on-kafka',
-    phase: 4,
+    id: 'outbox-08-http-depends-on-kafka',
+    group: 'outbox',
     title: 'task creation connects to a Kafka broker inside the request',
     edits: [
       {
@@ -288,8 +292,8 @@ export const mutations = [
     tests: [{ ...PS, files: ['test/outbox.int.test.ts'], name: 'Invariant 3' }],
   },
   {
-    id: 'p4-09-retry-backoff-disabled',
-    phase: 4,
+    id: 'outbox-09-retry-backoff-disabled',
+    group: 'outbox',
     title: 'a failed row is eligible again immediately',
     edits: [
       {
@@ -301,8 +305,8 @@ export const mutations = [
     tests: [{ ...PUB, files: ['test/publisher.int.test.ts', 'test/kafka-outage.int.test.ts'] }],
   },
   {
-    id: 'p4-10-stale-claim-recovery-broken',
-    phase: 4,
+    id: 'outbox-10-stale-claim-recovery-broken',
+    group: 'outbox',
     title: 'an expired lease is never reclaimed',
     edits: [{ file: OUTBOX, find: LEASE_CHECK, replace: 'AND c.claimed_until IS NULL' }],
     tests: [
@@ -310,16 +314,16 @@ export const mutations = [
     ],
   },
   {
-    id: 'p5-baseline',
-    phase: 5,
+    id: 'consumers-baseline',
+    group: 'consumers',
     title: 'no mutation: the idempotent-consumer suite passes',
     edits: [],
     tests: IDEM_TESTS,
     expect: 'pass',
   },
   {
-    id: 'p5-01-unique-constraint-removed',
-    phase: 5,
+    id: 'consumers-01-unique-constraint-removed',
+    group: 'consumers',
     title: 'processed_events without its (consumer_name, event_id) key',
     edits: [
       {
@@ -331,8 +335,8 @@ export const mutations = [
     tests: IDEM_TESTS,
   },
   {
-    id: 'p5-02-random-instance-identity',
-    phase: 5,
+    id: 'consumers-02-random-instance-identity',
+    group: 'consumers',
     title: 'each handler instance (replica/process) gets its own random consumer identity',
     edits: [
       {
@@ -345,8 +349,8 @@ export const mutations = [
     tests: IDEM_TESTS,
   },
   {
-    id: 'p5-03-marker-committed-before-side-effect',
-    phase: 5,
+    id: 'consumers-03-marker-committed-before-side-effect',
+    group: 'consumers',
     title: 'marker inserted and committed on its own, then the side effect in a later transaction',
     edits: [
       {
@@ -362,8 +366,8 @@ export const mutations = [
     tests: IDEM_TESTS,
   },
   {
-    id: 'p5-04-marker-outside-side-effect-transaction',
-    phase: 5,
+    id: 'consumers-04-marker-outside-side-effect-transaction',
+    group: 'consumers',
     title: 'check marker, commit the side effect, then insert the marker separately',
     edits: [
       {
@@ -384,8 +388,8 @@ export const mutations = [
     // Not awaiting the handler lets KafkaJS resolve (and auto-commit) the offset before the
     // handler's DB transaction commits or fails. A first version, a manual commitOffsets before
     // the handler, was masked by KafkaJS re-committing its own resolved offset and survived.
-    id: 'p5-05-offset-committed-before-processing',
-    phase: 5,
+    id: 'consumers-05-offset-committed-before-processing',
+    group: 'consumers',
     title: 'consumer acknowledges the message before the handler’s DB transaction finishes',
     edits: [
       {
@@ -397,8 +401,8 @@ export const mutations = [
     tests: IDEM_TESTS,
   },
   {
-    id: 'p5-06-check-then-act-race',
-    phase: 5,
+    id: 'consumers-06-check-then-act-race',
+    group: 'consumers',
     title: 'SELECT marker, run side effect, INSERT marker ON CONFLICT DO NOTHING (race ignored)',
     edits: [
       {
@@ -418,8 +422,8 @@ export const mutations = [
     tests: IDEM_TESTS,
   },
   {
-    id: 'p5-07-global-dedupe-across-consumers',
-    phase: 5,
+    id: 'consumers-07-global-dedupe-across-consumers',
+    group: 'consumers',
     title: 'an event processed by any consumer counts as processed for all',
     edits: [
       {
@@ -432,8 +436,8 @@ export const mutations = [
     tests: IDEM_TESTS,
   },
   {
-    id: 'p5-08-marker-kept-after-handler-failure',
-    phase: 5,
+    id: 'consumers-08-marker-kept-after-handler-failure',
+    group: 'consumers',
     title: 'handler errors are swallowed, so the marker commits although the work failed',
     edits: [
       {
@@ -445,8 +449,8 @@ export const mutations = [
     tests: IDEM_TESTS,
   },
   {
-    id: 'p5-09-checked-out-client-error-unhandled',
-    phase: 5,
+    id: 'consumers-09-checked-out-client-error-unhandled',
+    group: 'consumers',
     title:
       'no error listener on checked-out clients: a connection dying mid-transaction crashes the process',
     edits: [
@@ -458,25 +462,25 @@ export const mutations = [
     ],
     tests: IDEM_TESTS,
   },
-  // ---------------------------------------------------------------- Phase 6
+  // ---------------------------------------------------------------- activity
   {
-    id: 'p6-baseline',
-    phase: 6,
+    id: 'activity-baseline',
+    group: 'activity',
     title: 'no mutation: activity suites pass',
     edits: [],
     tests: [...ACT_TESTS, ...PS_ACTIVITY],
     expect: 'pass',
   },
   {
-    id: 'p6-01-bypasses-phase5-dedupe',
-    phase: 6,
+    id: 'activity-01-bypasses-consumer-dedupe',
+    group: 'activity',
     title: 'activity worker writes directly, without processEventOnce',
     edits: [{ file: ACT_WORKER, find: ACT_HANDLER, replace: DIRECT_HANDLER }],
     tests: ACT_TESTS,
   },
   {
-    id: 'p6-02-duplicate-creates-duplicate-activity',
-    phase: 6,
+    id: 'activity-02-duplicate-creates-duplicate-activity',
+    group: 'activity',
     title: 'no dedupe and no UNIQUE(event_id): a redelivery adds a second entry',
     edits: [
       { file: ACT_WORKER, find: ACT_HANDLER, replace: DIRECT_HANDLER },
@@ -489,8 +493,8 @@ export const mutations = [
     tests: ACT_TESTS,
   },
   {
-    id: 'p6-03-marker-commits-activity-rolls-back',
-    phase: 6,
+    id: 'activity-03-marker-commits-activity-rolls-back',
+    group: 'activity',
     title: 'activity insert failure swallowed (savepoint): the marker commits without the entry',
     edits: [
       {
@@ -503,8 +507,8 @@ export const mutations = [
     tests: ACT_TESTS,
   },
   {
-    id: 'p6-04-activity-commits-marker-does-not',
-    phase: 6,
+    id: 'activity-04-activity-commits-marker-does-not',
+    group: 'activity',
     title: 'activity written in its own transaction, separate from the processed marker',
     edits: [
       {
@@ -517,8 +521,8 @@ export const mutations = [
     tests: ACT_TESTS,
   },
   {
-    id: 'p6-05-offset-before-db-transaction',
-    phase: 6,
+    id: 'activity-05-offset-before-db-transaction',
+    group: 'activity',
     title: 'consumer acknowledges before the activity transaction finishes',
     edits: [
       {
@@ -530,8 +534,8 @@ export const mutations = [
     tests: ACT_TESTS,
   },
   {
-    id: 'p6-06-activity-authorization-removed',
-    phase: 6,
+    id: 'activity-06-activity-authorization-removed',
+    group: 'activity',
     title: 'GET /projects/:id/activity without the project access check',
     edits: [
       {
@@ -543,8 +547,8 @@ export const mutations = [
     tests: PS_ACTIVITY,
   },
   {
-    id: 'p6-07-wrong-project-id',
-    phase: 6,
+    id: 'activity-07-wrong-project-id',
+    group: 'activity',
     title: 'activity recorded under the task id instead of the project id',
     edits: [
       {
@@ -556,8 +560,8 @@ export const mutations = [
     tests: ACT_TESTS,
   },
   {
-    id: 'p6-08-correlation-lost',
-    phase: 6,
+    id: 'activity-08-correlation-lost',
+    group: 'activity',
     title: 'activity gets a fresh correlation ID',
     edits: [
       {
@@ -569,8 +573,8 @@ export const mutations = [
     tests: ACT_TESTS,
   },
   {
-    id: 'p6-09-request-path-writes-activity',
-    phase: 6,
+    id: 'activity-09-request-path-writes-activity',
+    group: 'activity',
     title: 'task creation writes activity synchronously in the request transaction',
     edits: [
       {
@@ -591,8 +595,8 @@ export const mutations = [
     tests: PS_ACTIVITY,
   },
   {
-    id: 'p6-10-unstable-consumer-name',
-    phase: 6,
+    id: 'activity-10-unstable-consumer-name',
+    group: 'activity',
     title: 'each activity handler instance uses its own random consumer identity',
     edits: [
       {
@@ -603,18 +607,18 @@ export const mutations = [
     ],
     tests: [...ACT_TESTS, ARCH],
   },
-  // ---------------------------------------------------------------- Phase 7
+  // ---------------------------------------------------------------- cache
   {
-    id: 'p7-baseline',
-    phase: 7,
+    id: 'cache-baseline',
+    group: 'cache',
     title: 'no mutation: cache suites pass',
     edits: [],
     tests: [CACHE_UNIT, CACHE_INT, INV_UNIT, SYSTEM_P67],
     expect: 'pass',
   },
   {
-    id: 'p7-01-wrong-cache-key',
-    phase: 7,
+    id: 'cache-01-wrong-cache-key',
+    group: 'cache',
     title: 'board key without the project id (all projects share one entry)',
     edits: [
       {
@@ -626,8 +630,8 @@ export const mutations = [
     tests: [SYSTEM_P67],
   },
   {
-    id: 'p7-02-update-not-invalidated',
-    phase: 7,
+    id: 'cache-02-update-not-invalidated',
+    group: 'cache',
     title: 'task.updated does not invalidate the board',
     edits: [
       { file: INV_WORKER, find: "  'task.updated': true,", replace: "  'task.updated': false," },
@@ -635,8 +639,8 @@ export const mutations = [
     tests: [SYSTEM_P67],
   },
   {
-    id: 'p7-03-invalidates-unrelated-projects',
-    phase: 7,
+    id: 'cache-03-invalidates-unrelated-projects',
+    group: 'cache',
     title: 'invalidation deletes every board entry, not just the event’s project',
     edits: [
       {
@@ -649,8 +653,8 @@ export const mutations = [
     tests: [CACHE_INT, SYSTEM_P67],
   },
   {
-    id: 'p7-04-redis-outage-500',
-    phase: 7,
+    id: 'cache-04-redis-outage-500',
+    group: 'cache',
     title: 'a cache read error fails the board request',
     edits: [
       {
@@ -663,8 +667,8 @@ export const mutations = [
     tests: [SYSTEM_P67],
   },
   {
-    id: 'p7-05-set-failure-breaks-read',
-    phase: 7,
+    id: 'cache-05-set-failure-breaks-read',
+    group: 'cache',
     title: 'a failed cache write throws into the request',
     edits: [
       {
@@ -676,8 +680,8 @@ export const mutations = [
     tests: [CACHE_INT],
   },
   {
-    id: 'p7-06-writes-depend-on-redis',
-    phase: 7,
+    id: 'cache-06-writes-depend-on-redis',
+    group: 'cache',
     title: 'task update invalidates Redis directly inside its transaction',
     edits: [
       {
@@ -701,8 +705,8 @@ export const mutations = [
     tests: [ARCH, SYSTEM_P67],
   },
   {
-    id: 'p7-07-authorization-bypass-on-hit',
-    phase: 7,
+    id: 'cache-07-authorization-bypass-on-hit',
+    group: 'cache',
     title: 'the cached board is returned before the access check',
     edits: [
       {
@@ -715,8 +719,8 @@ export const mutations = [
     tests: [SYSTEM_P67],
   },
   {
-    id: 'p7-08-invalidator-cannot-catch-up',
-    phase: 7,
+    id: 'cache-08-invalidator-cannot-catch-up',
+    group: 'cache',
     title: 'the invalidator acknowledges events whose invalidation failed',
     edits: [
       {
@@ -728,8 +732,8 @@ export const mutations = [
     tests: [SYSTEM_P67],
   },
   {
-    id: 'p7-09-corrupt-entry-crashes',
-    phase: 7,
+    id: 'cache-09-corrupt-entry-crashes',
+    group: 'cache',
     title: 'a corrupt cache entry throws instead of being treated as a miss',
     edits: [
       {
@@ -742,8 +746,8 @@ export const mutations = [
     tests: [CACHE_INT],
   },
   {
-    id: 'p7-10-no-ttl',
-    phase: 7,
+    id: 'cache-10-no-ttl',
+    group: 'cache',
     title: 'cached values are stored without expiry',
     edits: [
       {
@@ -755,8 +759,8 @@ export const mutations = [
     tests: [CACHE_INT],
   },
   {
-    id: 'p7-11-stale-write-back',
-    phase: 7,
+    id: 'cache-11-stale-write-back',
+    group: 'cache',
     title: 'write-back ignores the generation (a pre-invalidation snapshot is stored)',
     edits: [
       {
@@ -768,8 +772,8 @@ export const mutations = [
     tests: [CACHE_INT],
   },
   {
-    id: 'p7-12-no-read-your-writes',
-    phase: 7,
+    id: 'cache-12-no-read-your-writes',
+    group: 'cache',
     title:
       'the board route ignores Cache-Control: no-cache (the writer may read its change back stale)',
     edits: [
@@ -782,18 +786,18 @@ export const mutations = [
     ],
     tests: [SYSTEM_P67],
   },
-  // ---------------------------------------------------------------- Phase 8: realtime
+  // ---------------------------------------------------------------- realtime
   {
-    id: 'p8-baseline',
-    phase: 8,
+    id: 'realtime-baseline',
+    group: 'realtime',
     title: 'no mutation: realtime, retry/DLQ and client reconnect suites pass',
     edits: [],
     tests: [RT_UNIT, RT_INT, WEB_RT, DLQ_INT, KAFKA_UNIT, SYSTEM_RT],
     expect: 'pass',
   },
   {
-    id: 'p8-01-subscribe-without-membership',
-    phase: 8,
+    id: 'realtime-01-subscribe-without-membership',
+    group: 'realtime',
     title: 'subscriptions are accepted for projects the user is not a member of',
     edits: [
       {
@@ -805,8 +809,8 @@ export const mutations = [
     tests: [RT_INT, SYSTEM_RT],
   },
   {
-    id: 'p8-02-unauthenticated-subscribe',
-    phase: 8,
+    id: 'realtime-02-unauthenticated-subscribe',
+    group: 'realtime',
     title: 'a connection that skips auth is treated as authenticated',
     edits: [
       {
@@ -818,8 +822,8 @@ export const mutations = [
     tests: [RT_INT],
   },
   {
-    id: 'p8-03-no-auth-timeout',
-    phase: 8,
+    id: 'realtime-03-no-auth-timeout',
+    group: 'realtime',
     title: 'a connection that never authenticates is kept open forever',
     edits: [
       {
@@ -831,8 +835,8 @@ export const mutations = [
     tests: [RT_INT],
   },
   {
-    id: 'p8-04-broadcast-to-every-room',
-    phase: 8,
+    id: 'realtime-04-broadcast-to-every-room',
+    group: 'realtime',
     title: 'events are sent to every connected client, not the project room',
     edits: [
       {
@@ -844,8 +848,8 @@ export const mutations = [
     tests: [RT_UNIT, RT_INT],
   },
   {
-    id: 'p8-05-duplicates-forwarded',
-    phase: 8,
+    id: 'realtime-05-duplicates-forwarded',
+    group: 'realtime',
     title: 'a redelivered event is broadcast again (no duplicate suppression)',
     edits: [
       {
@@ -857,8 +861,8 @@ export const mutations = [
     tests: [RT_UNIT, RT_INT],
   },
   {
-    id: 'p8-06-unbounded-send-buffer',
-    phase: 8,
+    id: 'realtime-06-unbounded-send-buffer',
+    group: 'realtime',
     title: 'slow clients are never disconnected (server memory grows without bound)',
     edits: [
       {
@@ -870,8 +874,8 @@ export const mutations = [
     tests: [RT_UNIT, RT_INT],
   },
   {
-    id: 'p8-07-rooms-leak-on-disconnect',
-    phase: 8,
+    id: 'realtime-07-rooms-leak-on-disconnect',
+    group: 'realtime',
     title: 'a disconnected client stays in its rooms',
     edits: [
       {
@@ -883,8 +887,8 @@ export const mutations = [
     tests: [RT_UNIT, RT_INT],
   },
   {
-    id: 'p8-08-dead-peers-never-terminated',
-    phase: 8,
+    id: 'realtime-08-dead-peers-never-terminated',
+    group: 'realtime',
     title: 'the heartbeat never terminates a peer that stopped answering pings',
     edits: [
       {
@@ -896,8 +900,8 @@ export const mutations = [
     tests: [RT_UNIT, RT_INT],
   },
   {
-    id: 'p8-09-replicas-share-a-group',
-    phase: 8,
+    id: 'realtime-09-replicas-share-a-group',
+    group: 'realtime',
     title: 'all replicas join one consumer group (each sees only some partitions)',
     edits: [
       {
@@ -909,8 +913,8 @@ export const mutations = [
     tests: [{ ...RT_INT, name: 'different replicas' }],
   },
   {
-    id: 'p8-10-kafka-metadata-leaks',
-    phase: 8,
+    id: 'realtime-10-kafka-metadata-leaks',
+    group: 'realtime',
     title: 'notifications carry Kafka partition/offset to browsers',
     edits: [
       {
@@ -923,8 +927,8 @@ export const mutations = [
     tests: [RT_INT],
   },
   {
-    id: 'p8-11-shutdown-drops-clients',
-    phase: 8,
+    id: 'realtime-11-shutdown-drops-clients',
+    group: 'realtime',
     title: 'shutdown kills sockets instead of closing with "going away"',
     edits: [
       {
@@ -936,15 +940,15 @@ export const mutations = [
     tests: [RT_INT],
   },
   {
-    id: 'p8-12-no-reconcile-after-reconnect',
-    phase: 8,
+    id: 'realtime-12-no-reconcile-after-reconnect',
+    group: 'realtime',
     title: 'the browser does not refetch after (re)subscribing, so missed events stay missed',
     edits: [{ file: WEB_CONN, find: '        this.#o.onResync();\n', replace: '' }],
     tests: [WEB_RT],
   },
   {
-    id: 'p8-13-reconnect-without-jitter',
-    phase: 8,
+    id: 'realtime-13-reconnect-without-jitter',
+    group: 'realtime',
     title: 'every client reconnects after exactly the same delay (synchronized storm)',
     edits: [
       {
@@ -956,8 +960,8 @@ export const mutations = [
     tests: [WEB_RT],
   },
   {
-    id: 'p8-14-gateway-accepts-any-origin',
-    phase: 8,
+    id: 'realtime-14-gateway-accepts-any-origin',
+    group: 'realtime',
     title: 'the gateway relays WebSocket upgrades from any page origin',
     edits: [
       {
@@ -968,10 +972,10 @@ export const mutations = [
     ],
     tests: [{ ...SYSTEM_RT, name: 'another origin' }],
   },
-  // ---------------------------------------------------------------- Phase 8: retries and the DLQ
+  // ---------------------------------------------------------------- realtime: retries and the DLQ
   {
-    id: 'p8-d01-no-retry-before-dlq',
-    phase: 8,
+    id: 'realtime-d01-no-retry-before-dlq',
+    group: 'realtime',
     title: 'a failing event is dead-lettered on the first attempt',
     edits: [
       {
@@ -983,8 +987,8 @@ export const mutations = [
     tests: [DLQ_INT],
   },
   {
-    id: 'p8-d02-unbounded-poison-retries',
-    phase: 8,
+    id: 'realtime-d02-unbounded-poison-retries',
+    group: 'realtime',
     title: 'a poison event is retried forever and blocks its partition',
     edits: [
       {
@@ -996,8 +1000,8 @@ export const mutations = [
     tests: [{ ...DLQ_INT, name: 'poison event is tried' }],
   },
   {
-    id: 'p8-d03-ack-despite-dlq-failure',
-    phase: 8,
+    id: 'realtime-d03-ack-despite-dlq-failure',
+    group: 'realtime',
     title: 'the source offset is committed although the DLQ write failed (event lost)',
     edits: [
       {
@@ -1009,8 +1013,8 @@ export const mutations = [
     tests: [{ ...DLQ_INT, name: 'DLQ cannot be written' }],
   },
   {
-    id: 'p8-d09-dlq-failure-crashes-consumer',
-    phase: 8,
+    id: 'realtime-d09-dlq-failure-crashes-consumer',
+    group: 'realtime',
     title: 'a failed DLQ write is rethrown as-is (non-retriable errors stop the consumer for good)',
     edits: [
       {
@@ -1022,8 +1026,8 @@ export const mutations = [
     tests: [{ ...DLQ_INT, name: 'NON-retriable DLQ failure' }],
   },
   {
-    id: 'p8-d04-outage-classified-as-poison',
-    phase: 8,
+    id: 'realtime-d04-outage-classified-as-poison',
+    group: 'realtime',
     title: 'dependency outages are classified permanent (the stream drains into the DLQ)',
     edits: [
       {
@@ -1035,8 +1039,8 @@ export const mutations = [
     tests: [KAFKA_UNIT, DLQ_INT],
   },
   {
-    id: 'p8-d05-wrapped-driver-error',
-    phase: 8,
+    id: 'realtime-d05-wrapped-driver-error',
+    group: 'realtime',
     title:
       'classification ignores the wrapped driver error (the real SQLSTATE; leaks query params)',
     edits: [
@@ -1049,8 +1053,8 @@ export const mutations = [
     tests: [KAFKA_UNIT],
   },
   {
-    id: 'p8-d06-dlq-error-unsanitized',
-    phase: 8,
+    id: 'realtime-d06-dlq-error-unsanitized',
+    group: 'realtime',
     title: 'DLQ records and logs keep credentials from error messages',
     edits: [
       {
@@ -1062,8 +1066,8 @@ export const mutations = [
     tests: [KAFKA_UNIT, { ...DLQ_INT, name: 'poison event is tried' }],
   },
   {
-    id: 'p8-d07-malformed-silently-dropped',
-    phase: 8,
+    id: 'realtime-d07-malformed-silently-dropped',
+    group: 'realtime',
     title: 'undecodable messages are skipped without a DLQ record',
     edits: [
       {
@@ -1076,8 +1080,8 @@ export const mutations = [
     tests: [{ ...DLQ_INT, name: 'malformed input' }],
   },
   {
-    id: 'p8-d08-replay-changes-identity',
-    phase: 8,
+    id: 'realtime-d08-replay-changes-identity',
+    group: 'realtime',
     title: 'replay republishes under a new eventId (idempotent consumers apply it twice)',
     edits: [
       {
@@ -1089,18 +1093,18 @@ export const mutations = [
     ],
     tests: [{ ...DLQ_INT, name: 'replay republishes' }],
   },
-  // ---------------------------------------------------------------- Phase 9: attachments
+  // ---------------------------------------------------------------- attachments
   {
-    id: 'p9-baseline',
-    phase: 9,
+    id: 'attachments-baseline',
+    group: 'attachments',
     title: 'no mutation: attachment and object-storage suites pass',
     edits: [],
     tests: [ATT_INT, STORAGE_INT, STORAGE_UNIT],
     expect: 'pass',
   },
   {
-    id: 'p9-01-download-without-authorization',
-    phase: 9,
+    id: 'attachments-01-download-without-authorization',
+    group: 'attachments',
     title: 'attachments are served (and deleted) without checking the task access',
     edits: [
       {
@@ -1112,8 +1116,8 @@ export const mutations = [
     tests: [{ ...ATT_INT, name: 'authorization happens' }],
   },
   {
-    id: 'p9-02-any-content-type',
-    phase: 9,
+    id: 'attachments-02-any-content-type',
+    group: 'attachments',
     title: 'the content-type allowlist is not enforced (text/html accepted)',
     edits: [
       {
@@ -1125,8 +1129,8 @@ export const mutations = [
     tests: [{ ...ATT_INT, name: 'enforces size and type' }],
   },
   {
-    id: 'p9-03-no-declared-size-limit',
-    phase: 9,
+    id: 'attachments-03-no-declared-size-limit',
+    group: 'attachments',
     title: 'over-limit uploads are signed',
     edits: [
       {
@@ -1138,8 +1142,8 @@ export const mutations = [
     tests: [{ ...ATT_INT, name: 'enforces size and type' }],
   },
   {
-    id: 'p9-04-signed-policy-without-size-bound',
-    phase: 9,
+    id: 'attachments-04-signed-policy-without-size-bound',
+    group: 'attachments',
     title: 'the presigned POST does not bind the body size',
     edits: [
       {
@@ -1151,8 +1155,8 @@ export const mutations = [
     tests: [STORAGE_INT, { ...ATT_INT, name: 'enforces size and type' }],
   },
   {
-    id: 'p9-05-signed-policy-without-content-type',
-    phase: 9,
+    id: 'attachments-05-signed-policy-without-content-type',
+    group: 'attachments',
     title: 'the presigned POST lets the browser choose the stored content type',
     edits: [
       {
@@ -1164,8 +1168,8 @@ export const mutations = [
     tests: [STORAGE_UNIT, STORAGE_INT],
   },
   {
-    id: 'p9-06-user-controlled-object-key',
-    phase: 9,
+    id: 'attachments-06-user-controlled-object-key',
+    group: 'attachments',
     title: 'the object key is built from the user-supplied file name',
     edits: [
       {
@@ -1178,8 +1182,8 @@ export const mutations = [
     tests: [{ ...ATT_INT, name: 'upload → finalize' }],
   },
   {
-    id: 'p9-07-finalize-trusts-browser',
-    phase: 9,
+    id: 'attachments-07-finalize-trusts-browser',
+    group: 'attachments',
     title: 'finalization marks ready without checking the stored object (HEAD)',
     edits: [
       {
@@ -1191,8 +1195,8 @@ export const mutations = [
     tests: [{ ...ATT_INT, name: 'never happened' }],
   },
   {
-    id: 'p9-08-oversized-object-accepted',
-    phase: 9,
+    id: 'attachments-08-oversized-object-accepted',
+    group: 'attachments',
     title: 'a stored object larger than declared is accepted',
     edits: [
       {
@@ -1204,8 +1208,8 @@ export const mutations = [
     tests: [{ ...ATT_INT, name: 'larger than declared' }],
   },
   {
-    id: 'p9-09-sweep-forgets-failed-deletes',
-    phase: 9,
+    id: 'attachments-09-sweep-forgets-failed-deletes',
+    group: 'attachments',
     title: 'the sweep never retries object deletes that failed (orphans stay forever)',
     edits: [
       {
@@ -1217,8 +1221,8 @@ export const mutations = [
     tests: [{ ...ATT_INT, name: 'sweep' }],
   },
   {
-    id: 'p9-10-storage-failure-is-500',
-    phase: 9,
+    id: 'attachments-10-storage-failure-is-500',
+    group: 'attachments',
     title: 'a storage outage surfaces as an unhandled error instead of 503',
     edits: [
       {
@@ -1230,8 +1234,8 @@ export const mutations = [
     tests: [{ ...ATT_INT, name: 'not connection failures' }],
   },
   {
-    id: 'p9-11-no-storage-timeouts',
-    phase: 9,
+    id: 'attachments-11-no-storage-timeouts',
+    group: 'attachments',
     title: 'S3 calls have no timeout or retry bound (an outage hangs requests)',
     edits: [
       {
@@ -1244,8 +1248,8 @@ export const mutations = [
     tests: [STORAGE_INT, { ...ATT_INT, name: 'storage outage' }],
   },
   {
-    id: 'p9-12-download-rendered-inline',
-    phase: 9,
+    id: 'attachments-12-download-rendered-inline',
+    group: 'attachments',
     title: 'downloads are served inline (an uploaded file could render in the browser)',
     edits: [
       {
@@ -1258,8 +1262,38 @@ export const mutations = [
     tests: [STORAGE_UNIT, { ...ATT_INT, name: 'upload → finalize' }],
   },
   {
-    id: 'p10-baseline',
-    phase: 10,
+    id: 'attachments-13-finalize-assumes-ready',
+    group: 'attachments',
+    title:
+      'finalization reports ready although its conditional update matched nothing (the sweep had abandoned the upload)',
+    edits: [
+      {
+        file: ATT_SERVICE,
+        // The whole fallback: an early return alone leaves unreachable code that fails to compile.
+        find: "    if (ready) return toDto(ready);\n    // No longer pending: a concurrent finalization won (ready), or the sweep abandoned the\n    // upload after the HEAD above (deleted). Report the row's state, never an assumed one.\n    const [current] = await this.db.select().from(attachments).where(eq(attachments.id, row.id));\n    if (current?.status === 'ready') return toDto(current);\n    throw notFound('Attachment');\n",
+        replace:
+          "    return toDto(ready ?? { ...row, status: 'ready', sizeBytes: head.sizeBytes });\n",
+      },
+    ],
+    tests: [{ ...ATT_INT, name: 'during its finalization' }],
+  },
+  {
+    id: 'attachments-14-sweep-deletes-before-claiming',
+    group: 'attachments',
+    title:
+      'the sweep deletes an abandoned upload’s object without first claiming the row (a concurrent finalization reports ready)',
+    edits: [
+      {
+        file: ATT_SERVICE,
+        find: "      if (row.status === 'pending') {",
+        replace: '      if (false) {',
+      },
+    ],
+    tests: [{ ...ATT_INT, name: 'during the sweep' }],
+  },
+  {
+    id: 'api-baseline',
+    group: 'api',
     title: 'no mutation: database error classification passes',
     edits: [],
     tests: [
@@ -1271,8 +1305,8 @@ export const mutations = [
     expect: 'pass',
   },
   {
-    id: 'p10-01-wrapped-pool-timeout-is-500',
-    phase: 10,
+    id: 'api-01-wrapped-pool-timeout-is-500',
+    group: 'api',
     title: 'a pool timeout wrapped by Drizzle is answered 500 instead of 503 (found on AWS)',
     edits: [
       {
@@ -1285,8 +1319,8 @@ export const mutations = [
     tests: [{ ...DB_UNIT, name: 'Drizzle wrapped' }],
   },
   {
-    id: 'p10-02-dev-login-allowed-in-production',
-    phase: 10,
+    id: 'api-02-dev-login-allowed-in-production',
+    group: 'api',
     title: 'dev login (sign in as anyone by email) can be enabled in production',
     edits: [
       {
@@ -1298,16 +1332,16 @@ export const mutations = [
     tests: [{ ...PS_UNIT, name: 'refuses dev login' }],
   },
   {
-    id: 'p10-03-statement-timeout-is-500',
-    phase: 10,
+    id: 'api-03-statement-timeout-is-500',
+    group: 'api',
     title:
       'a statement cancelled by statement_timeout (rolled back, safe to retry) is answered 500',
     edits: [{ file: DB_ERRORS, find: "  '57014',\n", replace: '' }],
     tests: [{ ...DB_UNIT, name: 'statement timeout' }],
   },
   {
-    id: 'p10-04-timed-out-mutation-reported-as-safe-to-retry',
-    phase: 10,
+    id: 'api-04-timed-out-mutation-reported-as-safe-to-retry',
+    group: 'api',
     title:
       'a mutation whose database response timed out is answered 503 (retry is safe) instead of 504 OUTCOME_UNKNOWN',
     edits: [
@@ -1321,8 +1355,8 @@ export const mutations = [
     tests: [{ ...PS_ERRORS_UNIT, name: 'timed-out mutation' }],
   },
   {
-    id: 'p10-05-idempotency-key-not-checked',
-    phase: 10,
+    id: 'api-05-idempotency-key-not-checked',
+    group: 'api',
     title: 'a retried create with the same Idempotency-Key creates a second task',
     edits: [
       {
@@ -1334,8 +1368,8 @@ export const mutations = [
     tests: [{ ...PS, files: ['test/idempotency.int.test.ts'], name: 'replays the first response' }],
   },
   {
-    id: 'p10-06-retention-deletes-pending-events',
-    phase: 10,
+    id: 'outbox-11-retention-deletes-pending-events',
+    group: 'outbox',
     title: 'outbox retention deletes old events that were never published (lost events)',
     edits: [
       {
@@ -1348,8 +1382,8 @@ export const mutations = [
     tests: [{ ...PUB, files: ['test/retention.int.test.ts'], name: 'never pending ones' }],
   },
   {
-    id: 'p10-07-rate-limit-shared-by-all-users',
-    phase: 10,
+    id: 'api-06-rate-limit-shared-by-all-users',
+    group: 'api',
     title: 'every authenticated user shares one rate-limit bucket (one busy user blocks everyone)',
     edits: [
       {
@@ -1359,5 +1393,19 @@ export const mutations = [
       },
     ],
     tests: [{ ...GATEWAY_UNIT, name: 'limits each user separately' }],
+  },
+  {
+    id: 'api-07-lost-connection-reported-as-safe-to-retry',
+    group: 'api',
+    title:
+      'a mutation whose upstream connection dropped after sending is answered 503 (retry is safe) instead of 504 OUTCOME_UNKNOWN',
+    edits: [
+      {
+        file: 'apps/api-gateway/src/proxy.ts',
+        find: "            reason !== 'upstream_unreachable' &&",
+        replace: "            reason === 'upstream_timeout' &&",
+      },
+    ],
+    tests: [{ ...GATEWAY_UNIT, name: 'connection dropped after sending' }],
   },
 ];

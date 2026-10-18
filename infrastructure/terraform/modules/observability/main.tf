@@ -1,5 +1,5 @@
 # CloudWatch log groups for ECS containers (structured JSON from Pino). Short retention: these are
-# dev logs for debugging, not an archive. Metrics/dashboards remain Phase 10 (Prometheus/Grafana).
+# dev logs for debugging, not an archive. Metrics and dashboards are Prometheus/Grafana.
 variable "name" { type = string }
 variable "services" { type = list(string) }
 variable "retention_days" { type = number }

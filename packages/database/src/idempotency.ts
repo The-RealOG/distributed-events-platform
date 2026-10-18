@@ -108,7 +108,7 @@ export interface IdempotentHandlerOptions {
   logger: ConsumerLogger;
   /** The side effects. Must write only through `tx` for the once-only guarantee to hold. */
   handle: (event: DomainEvent, tx: DbTransaction, metadata: DeliveryMetadata) => Promise<void>;
-  /** Counting hook (processed / duplicate / failed) for future metrics. */
+  /** Counting hook (processed / duplicate / failed), wired to Prometheus by the services. */
   onOutcome?: (outcome: ConsumerOutcome, event: DomainEvent, durationMs: number) => void;
 }
 

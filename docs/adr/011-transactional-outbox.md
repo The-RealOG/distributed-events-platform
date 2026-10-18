@@ -1,6 +1,6 @@
 # ADR-011: Transactional outbox for PostgreSQL-to-Kafka delivery
 
-**Status:** Accepted (Phase 4)
+**Status:** Accepted
 
 ## Context
 
@@ -96,8 +96,7 @@ Two caveats, both documented and tested:
   commits after the first. For unrelated tasks in one project, the order between them is simply
   the order in which they became visible.
 - **Head-of-line blocking.** An event that keeps failing holds back later events of **its
-  project only**. Other projects keep flowing. Phase 9 adds a dead-letter policy for events that
-  can never be published.
+  project only**. Other projects keep flowing.
 
 ### Retries: two layers, both bounded
 
@@ -131,7 +130,7 @@ After the lease expires, another worker (or the restarted one) publishes the **s
 event** again: the same `eventId` and the same bytes, in a second Kafka record. This is expected and
 tested (`crash-and-shutdown.int.test.ts`, "Invariant 5"). Removing the window would need an atomic
 commit across Kafka and PostgreSQL, which we don't have. Kafka's transactional producer would cover
-only the Kafka side. Instead, **Phase 5 consumers deduplicate on `eventId`**, recording it in the same
+only the Kafka side. Instead, **consumers deduplicate on `eventId`** (ADR-013), recording it in the same
 database transaction as their side effect.
 
 Tests distinguish two kinds of duplicate:
@@ -164,20 +163,22 @@ Tests distinguish two kinds of duplicate:
   Kafka Connect and replication-slot operations. Worth revisiting at larger scale. The outbox
   table could be the CDC source.
 - **`LISTEN/NOTIFY` to wake the publisher.** An optimization only (notifications aren't durable).
-  Polling is enough until measured otherwise (Phase 11).
+  Polling is enough: measured on AWS, the publisher kept up with the API's sustainable
+  write rate at sub-second lag.
 
 ## Consequences
 
 - Writes succeed while Kafka or the publisher is down. Consumers are eventually consistent,
   and during an outage the lag is the outage.
-- Every consumer must be idempotent on `eventId` (Phase 5).
-- Published rows accumulate. A retention job (for example, delete rows published more than 7
-  days ago) is deferred; kept rows are useful for debugging and publish-latency analysis.
+- Every consumer must be idempotent on `eventId` (ADR-013).
+- Published rows are kept for `OUTBOX_RETENTION_HOURS` (default 168, Kafka's retention) for
+  debugging and publish-latency analysis, then deleted in batches by the publisher. Unpublished
+  rows are never deleted.
 - Every task version has exactly one event. A save that changes nothing writes nothing (no
   version bump, no event), and no-op assignment changes were already silent.
 
-## Relationship to Phase 5
+## Relationship to idempotent consumers (ADR-013)
 
 This ADR delivers "every committed change is eventually published at least once, with a
-stable `eventId`". Phase 5 adds the other half: consumers record processed `eventId`s in the same
+stable `eventId`". ADR-013 is the other half: consumers record processed `eventId`s in the same
 transaction as their side effect, so the duplicates this design permits have no effect.

@@ -17,22 +17,22 @@ one precisely stated guarantee.
 
 ## Delivery semantics
 
-| Hop                  | Semantics                                           | Why                                                                                                                                      | Duplicate handling                                                                                                                          |
-| -------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Request → PostgreSQL | exactly once per successful response                | one transaction; client retries of a non-idempotent POST can create a second task (no idempotency keys; see limitations)                 | n/a                                                                                                                                         |
-| Outbox → Kafka       | **at least once**                                   | a publisher crash between the broker ack and `published_at` resends the row; the same `eventId` is sent every time (never regenerated)   | consumers deduplicate by `eventId`                                                                                                          |
-| Kafka → consumers    | **at least once**                                   | offsets are committed after the handler; a crash or rebalance redelivers                                                                 | per consumer, below                                                                                                                         |
-| Activity side effect | **effectively once per (consumer, eventId)**        | `processed_events (consumer_name, event_id)` inserted in the same transaction as the side effect; a duplicate finds the marker and skips | transactional idempotency                                                                                                                   |
-| Cache invalidation   | at least once, **naturally idempotent**             | `DEL` of a missing key and an extra generation bump are harmless                                                                         | none needed                                                                                                                                 |
-| Poison events        | to the DLQ **after** the DLQ ack, then acknowledged | a failed DLQ write leaves the source unacknowledged (redelivered)                                                                        | replay keeps the `eventId`, so idempotent consumers skip already-applied events                                                             |
-| Realtime → browser   | **best effort** (0..n times)                        | sockets drop; no replay                                                                                                                  | ring of the last 1024 eventIds per replica suppresses immediate duplicates; the client's refetch makes any number of notifications converge |
-| Browser ⇄ S3         | the upload is single-shot; `complete` is idempotent | HEAD decides; a second `complete` returns the ready row                                                                                  | n/a                                                                                                                                         |
+| Hop                  | Semantics                                           | Why                                                                                                                                                                                             | Duplicate handling                                                                                                                          |
+| -------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Request → PostgreSQL | exactly once per successful response                | one transaction; a create sent with an `Idempotency-Key` is applied at most once per user and key, and a retry gets the stored response. Without a key, a retried POST can create a second task | n/a                                                                                                                                         |
+| Outbox → Kafka       | **at least once**                                   | a publisher crash between the broker ack and `published_at` resends the row; the same `eventId` is sent every time (never regenerated)                                                          | consumers deduplicate by `eventId`                                                                                                          |
+| Kafka → consumers    | **at least once**                                   | offsets are committed after the handler; a crash or rebalance redelivers                                                                                                                        | per consumer, below                                                                                                                         |
+| Activity side effect | **effectively once per (consumer, eventId)**        | `processed_events (consumer_name, event_id)` inserted in the same transaction as the side effect; a duplicate finds the marker and skips                                                        | transactional idempotency                                                                                                                   |
+| Cache invalidation   | at least once, **naturally idempotent**             | `DEL` of a missing key and an extra generation bump are harmless                                                                                                                                | none needed                                                                                                                                 |
+| Poison events        | to the DLQ **after** the DLQ ack, then acknowledged | a failed DLQ write leaves the source unacknowledged (redelivered)                                                                                                                               | replay keeps the `eventId`, so idempotent consumers skip already-applied events                                                             |
+| Realtime → browser   | **best effort** (0..n times)                        | sockets drop; no replay                                                                                                                                                                         | ring of the last 1024 eventIds per replica suppresses immediate duplicates; the client's refetch makes any number of notifications converge |
+| Browser ⇄ S3         | the upload is single-shot; `complete` is idempotent | HEAD decides; a second `complete` returns the ready row                                                                                                                                         | n/a                                                                                                                                         |
 
 **There is no end-to-end exactly-once.** What the system guarantees is: no committed change is
 lost from PostgreSQL, no rolled-back change is ever announced, durable side effects happen once per
 consumer, and every read model converges to PostgreSQL, within the Kafka durability limit below.
 
-## Limitations (verified, not fixed)
+## Limitations and operational notes
 
 - **Kafka durability vs availability.** MSK runs replication factor 2 with
   `min.insync.replicas=2`, and the producer uses `acks=-1`. An acknowledged event is therefore on
@@ -50,10 +50,12 @@ consumer, and every read model converges to PostgreSQL, within the Kafka durabil
   `expectedVersion` instead.
 - **Timeouts say whether a retry is safe.** Pool-acquisition and connection failures, and
   statements cancelled by the server's `statement_timeout` (which roll back), return
-  **503 DEPENDENCY_UNAVAILABLE**: nothing was applied. When a response simply did not arrive in
-  time (the database client's query timeout, or the gateway's upstream timeout), a read still
-  returns 503, but a mutation returns **504 OUTCOME_UNKNOWN**: it may have been applied, so the
-  client must refetch before retrying.
+  **503 DEPENDENCY_UNAVAILABLE**: nothing was applied. So does the gateway when it could not
+  connect to the Project Service at all. When a response simply did not arrive (the database
+  client's query timeout, the gateway's upstream timeout, or an upstream connection that dropped
+  after the request was sent), a read still returns 503, but a mutation returns
+  **504 OUTCOME_UNKNOWN**: it may have been applied, so the client must refetch before
+  retrying.
 - **Overload.** At saturation, requests queue for project-service's 10-connection pool and fail
   after its 5 s connect timeout (503). There is no load shedding earlier.
 - **Outbox retention.** The outbox publisher deletes events Kafka acknowledged more than
@@ -65,9 +67,15 @@ consumer, and every read model converges to PostgreSQL, within the Kafka durabil
   builds; on a large existing table it should be built `CONCURRENTLY` instead.
 - **Rate limiting is per gateway task.** The gateway allows `RATE_LIMIT_MAX` requests (default 600) per `RATE_LIMIT_WINDOW_MS` (default 60 s) per client, where a client is a user's bearer
   token. Over the limit it answers 429 `RATE_LIMITED` with `Retry-After`. The counters are
-  in-memory, so with N gateway tasks a user gets up to N × the limit. Requests without a token
+  in-memory, so with N gateway tasks a user gets up to N × the limit. The gateway does not verify
+  the token (the Project Service does), so the bucket is per token rather than per verified
+  user: a client that invents a new token for every request is never limited, although each of
+  those requests is rejected with 401 upstream. Requests without a token
   are keyed by the caller's address, which behind the ALB is the load balancer's (the gateway
   does not trust `X-Forwarded-For`), so they share one bucket. Probes, CORS preflights and the
   WebSocket upgrade are not counted.
 - **Realtime.** Delivery is best effort (no replay). Clients recover by refetching on (re)subscribe,
-  which was verified on AWS.
+  which was verified on AWS. Access is checked when a client authenticates and subscribes, not
+  again afterwards: a user removed from a project, or whose token expires, keeps receiving that
+  project's notifications until the connection closes. Notifications carry only IDs, and the
+  refetch they trigger is authorized, so no task content leaks.

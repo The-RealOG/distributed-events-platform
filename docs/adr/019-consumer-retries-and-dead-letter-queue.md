@@ -1,6 +1,6 @@
 # ADR-019: Bounded retries, failure classification and a dead-letter queue
 
-**Status:** Accepted (Phase 8)
+**Status:** Accepted
 
 ## Context
 
@@ -22,7 +22,7 @@ never be processed.
 - Backoff between attempts: equal jitter, 200 ms base, 5 s cap (heartbeats sent while waiting).
 - Classification uses the **root cause** (`rootCause()` unwraps `.cause`): Drizzle wraps pg
   errors, and classifying the wrapper would turn a database outage into "poison" and copy the
-  wrapper's query parameters (user data) into the DLQ. Found and fixed during Phase 8.
+  wrapper's query parameters (user data) into the DLQ. Found and fixed while building this.
 - **DLQ record** (`domain.events.dlq`, 1 partition): `dlqVersion`, `category`, `consumer` (group),
   sanitized `error`, `attempts`, `failedAt`, `source {topic, partition, offset, key}`, and the
   original `event` (poison) or `rawBase64` (malformed). Errors are sanitized: credentials in

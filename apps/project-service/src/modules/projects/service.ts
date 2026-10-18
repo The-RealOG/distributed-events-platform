@@ -130,7 +130,7 @@ export class ProjectService {
     `);
     const found = rows[0]?.board;
     if (!found) throw notFound('Board');
-    // Same wire format as before: ISO timestamps with millisecond precision.
+    // JSON timestamps from PostgreSQL carry microseconds; the API uses millisecond ISO strings.
     const isoMs = (value: string) => new Date(value).toISOString();
     return {
       project: toProjectDto(project),

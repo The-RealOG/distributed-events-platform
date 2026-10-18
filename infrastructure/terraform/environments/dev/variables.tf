@@ -73,16 +73,16 @@ variable "kafka_version" {
 variable "enable_redis" {
   type        = bool
   default     = true
-  description = "ElastiCache Valkey (cache.t4g.micro) for the Phase 7 board cache; false removes it"
+  description = "ElastiCache Valkey (cache.t4g.micro) for the shared board cache; false removes it"
 }
 
 variable "board_cache_enabled" {
-  description = "Serve board reads from the shared cache (ADR-015). false = every read goes to PostgreSQL; used for the Phase-10 cache on/off experiment. Redis and the invalidator stay up either way."
+  description = "Serve board reads from the shared cache (ADR-015). false = every read goes to PostgreSQL; used for the cache on/off experiment. Redis and the invalidator stay up either way."
   type        = bool
   default     = true
 }
 
-# Task counts for controlled scale-out experiments (Phase 10). 1 is the measured baseline; change
+# Task counts for controlled scale-out experiments. 1 is the measured baseline; change
 # them with -var for an experiment and apply again without -var to restore, so Terraform stays the
 # only writer of desired counts. Each project-service task opens up to DATABASE_POOL_MAX (10) RDS
 # connections.

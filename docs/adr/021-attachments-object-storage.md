@@ -1,6 +1,6 @@
 # ADR-021: Attachments in S3 via presigned URLs; the API is the control plane only
 
-**Status:** Accepted (Phase 9)
+**Status:** Accepted
 
 ## Context
 

@@ -1,6 +1,6 @@
 # Architecture
 
-> Final state (Phase 10). A React frontend and an API Gateway in front of the Project Service
+> A React frontend and an API Gateway in front of the Project Service
 > (PostgreSQL, authoritative). Changes and their domain events commit together (transactional
 > outbox); the Outbox Publisher delivers events to Kafka. Three consumers react: the Activity
 > Service projects history (ADR-014), the Cache Invalidator keeps the shared board cache fresh
@@ -128,12 +128,13 @@ the logs. The gateway line and the Project Service line share it, and each has i
 
 ### Failure behaviour through the gateway
 
-| Situation                   | Browser receives                                                       | Bounded by                 |
-| --------------------------- | ---------------------------------------------------------------------- | -------------------------- |
-| Project Service unreachable | 503 `DEPENDENCY_UNAVAILABLE`, `details.reason: upstream_unreachable`   | connect timeout (2 s)      |
-| Project Service too slow    | 503, `reason: upstream_timeout`, "may or may not have been applied"    | response timeout (15 s)    |
-| PostgreSQL down             | the Project Service's own 503 `DEPENDENCY_UNAVAILABLE`, passed through | pool connect timeout (5 s) |
-| Any upstream 4xx/5xx        | passed through unchanged (already in the public error shape)           | n/a                        |
+| Situation                   | Browser receives                                                               | Bounded by                 |
+| --------------------------- | ------------------------------------------------------------------------------ | -------------------------- |
+| Project Service unreachable | 503 `DEPENDENCY_UNAVAILABLE`, `details.reason: upstream_unreachable`           | connect timeout (2 s)      |
+| Project Service too slow    | mutation: 504 `OUTCOME_UNKNOWN`, `reason: upstream_timeout`; read: 503         | response timeout (15 s)    |
+| Connection dropped mid-call | mutation: 504 `OUTCOME_UNKNOWN`, `reason: upstream_connection_lost`; read: 503 | n/a                        |
+| PostgreSQL down             | the Project Service's own 503 `DEPENDENCY_UNAVAILABLE`, passed through         | pool connect timeout (5 s) |
+| Any upstream 4xx/5xx        | passed through unchanged (already in the public error shape)                   | n/a                        |
 
 No gateway retries, for any method. Raw socket errors and internal addresses appear only in
 gateway logs (`upstream request failed`, with `reason` and `elapsedMs`).
@@ -175,7 +176,7 @@ Mutations are server-confirmed, with no optimistic updates. On success a mutatio
 returned entity into its own key (for example `['task', id]`) and invalidates only the
 aggregates it affected (for example `['board', projectId]`). Nothing invalidates everything.
 The design assumes other writers exist: the board is always re-read from the server rather
-than patched locally, so Phase 6 realtime notifications can trigger the same invalidations.
+than patched locally, so realtime notifications can trigger the same invalidations.
 
 Reads retry at most twice, and only for `network`/`unavailable`. Mutations never retry. A
 failed _refetch_ keeps the last good data on screen with a "showing the board as last loaded"
@@ -215,7 +216,7 @@ flowchart LR
   repos --> pg[(PostgreSQL)]
 ```
 
-The layers stay separate so later phases can slot in without rewriting handlers:
+The layers stay separate so new modules can be added without rewriting handlers:
 
 | Layer        | Responsibility                                                                 | Must not                                   |
 | ------------ | ------------------------------------------------------------------------------ | ------------------------------------------ |
@@ -224,7 +225,7 @@ The layers stay separate so later phases can slot in without rewriting handlers:
 | repositories | individual queries, accepting either the pool or an open transaction           | open transactions or make permission calls |
 
 Services open the transaction and pass it (`DbExecutor`) to every repository and
-authorization call. Checks and writes therefore see one consistent state, and the Phase 4
+authorization call. Checks and writes therefore see one consistent state, and the
 outbox insert can join the same transaction.
 
 ### Request path
@@ -297,7 +298,7 @@ Notes:
 
 - UUID primary keys (`gen_random_uuid()`), `timestamptz` everywhere, written in UTC.
 - `tasks.project_id` is denormalized from `column → board → project`. Authorization and
-  (from Phase 3) the Kafka partition key are then a single lookup. Services guarantee that the
+  the Kafka partition key are then a single lookup. Services guarantee that the
   column belongs to the same project on create and move.
 - **Soft delete only on tasks** (`deleted_at`): activity history and late-arriving events can
   still refer to them. Nothing else is soft-deleted.
@@ -307,9 +308,9 @@ Notes:
   equal positions; reads break ties by `id`, so order stays deterministic. No rebalancing job
   exists yet. Each insert into the same gap adds one decimal digit, which is harmless at
   realistic volumes (tested with 40 consecutive same-gap inserts).
-- **The board read** (`GET /projects/:id/board`) runs in a `REPEATABLE READ, READ ONLY`
-  transaction so its several queries observe one snapshot. This is the aggregate that Phase 7
-  will cache.
+- **The board read** (`GET /projects/:id/board`) is one SQL statement that builds the whole
+  aggregate (columns, active tasks, assignees) as JSON, so it reads one snapshot without an
+  explicit transaction. This is the aggregate the board cache stores (ADR-015).
 
 ## Concurrency
 
@@ -409,12 +410,12 @@ Decision record: [ADR-010](adr/010-kafka-domain-event-transport.md).
 | Topics          | created only by the idempotent `kafka-init` job; broker auto-creation is off                                                                     |
 | Heap            | 256–512 MB (sized for a laptop)                                                                                                                  |
 
-| Topic               | Partitions | Retention | Purpose                                                |
-| ------------------- | ---------- | --------- | ------------------------------------------------------ |
-| `domain.events`     | 3          | 7 days    | every domain event, keyed by `projectId`               |
-| `domain.events.dlq` | 1          | 30 days   | reserved for dead-lettered messages (routing: Phase 9) |
+| Topic               | Partitions | Retention | Purpose                                  |
+| ------------------- | ---------- | --------- | ---------------------------------------- |
+| `domain.events`     | 3          | 7 days    | every domain event, keyed by `projectId` |
+| `domain.events.dlq` | 1          | 30 days   | dead-lettered messages (ADR-019)         |
 
-Nothing that serves traffic depends on Kafka in Phase 3: no app service has `depends_on: kafka`,
+Nothing that serves traffic depends on Kafka: no request-path service has `depends_on: kafka`,
 no request-path package imports it (`tests/architecture/request-path.test.ts`), and the full
 browser flow works with the broker stopped (`tests/e2e/kafka-independence.spec.ts`).
 
@@ -481,7 +482,7 @@ partition, offset, key}`. Any failure rejects with `PublishError`, and nothing i
   bounded (default 10 s). It takes about as long as the fetch long-poll: 1 s (`maxWaitTimeMs`;
   KafkaJS’s own default of 5 s made every stop and rolling deploy take ~5 s).
 
-### Idempotent consumption (Phase 5)
+### Idempotent consumption
 
 Decision record: [ADR-013](adr/013-idempotent-consumers.md). A logical consumer (stable name,
 shared by its replicas; also its consumer group) records `(consumer_name, event_id)` in
@@ -537,7 +538,7 @@ without a DLQ skip it with the offset committed. Either way it cannot block or l
 factories take the Project Service's correlation ID unchanged, and it survives Kafka
 byte-for-byte (verified with a gateway-style UUID in `consumer.int.test.ts`). Producer and
 consumer logs carry `eventId`, `eventType`, `correlationId`, `topic`, `partition`, `offset`,
-`consumerGroup`. From Phase 4 the chain is HTTP request → outbox row → event → consumer logs.
+`consumerGroup`. The chain is HTTP request → outbox row → event → consumer logs.
 
 ### Observed broker outage and recovery
 

@@ -5,7 +5,7 @@ variable "vpc_id" { type = string }
 
 resource "aws_ecs_cluster" "this" {
   name = var.name
-  # Container Insights adds per-metric CloudWatch charges; application metrics are Phase 10.
+  # Container Insights adds per-metric CloudWatch charges; application metrics come from Prometheus instead.
   setting {
     name  = "containerInsights"
     value = "disabled"

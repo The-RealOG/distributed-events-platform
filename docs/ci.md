@@ -2,8 +2,8 @@
 
 `.github/workflows/ci.yml` runs on every pull request, on every push to `main`, and on demand.
 It needs no AWS access. Deliberate-break runs (`mutations.yml`) and AWS verification
-(`npm run aws:test`, `aws:demo`, `aws:audit`, `terraform plan`) are separate, run at phase and
-deploy checkpoints.
+(`npm run aws:test`, `aws:demo`, `aws:audit`, `terraform plan`) are separate and run
+manually, before and after deploys.
 
 ```
 plan (6 s) ──────────► integration: kafka │ system │ publisher+cache │ activity+project-service
@@ -114,8 +114,9 @@ a (cache-warm) build. Retagging by content hash is noted for later.
 
 ## Known limitations
 
-- Playwright E2E needs the Compose stack and isn't in CI. It runs locally, or against a deployed
-  backend with `WEB_URL`/`API_URL`.
+- Playwright E2E needs the whole Compose stack, so it is not part of `ci.yml`. `e2e.yml` builds
+  the stack and runs it nightly and on demand; it also runs locally, or against a deployed backend
+  with `WEB_URL`/`API_URL`.
 - Suites inside one shard run one after another (`--concurrency=1`). Some pause or stop shared
   containers, so running them in parallel within a job would need per-suite infrastructure
   anyway.

@@ -1,13 +1,13 @@
 # ADR-009: Thin API Gateway as the single external entry point
 
-**Status:** Accepted (Phase 2)
+**Status:** Accepted
 
 ## Context
 
-The browser needs to call the platform's HTTP APIs. Today that means only the Project
-Service, but later phases add a File Service and a Realtime Service (WebSockets), and the
-platform will move to AWS behind a load balancer. If the browser knew every service's
-address, each new service would add another origin to configure, another CORS policy to keep
+The browser needs to call the platform's HTTP APIs: the Project Service, and the Realtime
+Service over WebSockets, with the platform on AWS behind a load balancer. If the browser knew
+every service's address, each new service would add another origin to configure, another CORS
+policy to keep
 consistent, and another place where correlation IDs, body limits and security headers could
 drift. Internal service addresses would also leak into client bundles.
 
@@ -35,15 +35,18 @@ Specific choices:
   a limit on attempts.
 - **Timeouts are explicit.** Connect: 2 s. Response headers/body: 15 s, deliberately longer
   than the Project Service's 10 s statement timeout, so the service's own 503 arrives first.
-  A gateway timeout on a mutation returns
-  503 with `reason: upstream_timeout` and a message that the outcome is unknown, telling the
-  client to refetch rather than resubmit.
+  Only a request that was never sent (connection refused, DNS failure, connect timeout) is a
+  confirmed failure: 503 `DEPENDENCY_UNAVAILABLE`, `reason: upstream_unreachable`. Once a
+  mutation may have reached the Project Service (response timeout, or the connection dropped),
+  the gateway returns 504 `OUTCOME_UNKNOWN` (`reason: upstream_timeout` or
+  `upstream_connection_lost`), telling the client to refetch rather than resubmit. Reads get 503
+  in every case.
 - **Bodies are forwarded as bytes.** The gateway enforces size but does not parse JSON. The
   owning service validates. (A test pins this: reply-from would otherwise re-serialize a Buffer
   body as `{"type":"Buffer",…}`.)
 - **Request IDs are per hop; correlation IDs span hops.** The gateway never forwards the
   client's `x-request-id`. Each service mints its own, and they are joined by
-  `x-correlation-id`. That same ID will be carried into Kafka events in Phase 3+.
+  `x-correlation-id`. That same ID is carried into every Kafka event the request causes.
 - **Readiness reflects the gateway only.** If the Project Service is down, the gateway still
   answers quickly with 503. Marking it unready would just make the load balancer return errors
   instead.

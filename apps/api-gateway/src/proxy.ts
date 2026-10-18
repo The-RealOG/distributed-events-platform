@@ -68,12 +68,37 @@ function upstreamRequestHeaders(
   return headers;
 }
 
-function classifyUpstreamError(err: Error): 'upstream_timeout' | 'upstream_unreachable' {
-  const code = (err as { code?: string }).code ?? '';
-  const causeCode = (err.cause as { code?: string } | undefined)?.code ?? '';
-  return /TIMEOUT/i.test(code) || /TIMEOUT/i.test(causeCode) || err.name.includes('Timeout')
-    ? 'upstream_timeout'
-    : 'upstream_unreachable';
+/**
+ * - upstream_unreachable: no connection was established, so the request was never sent.
+ * - upstream_timeout: the request was sent, but no complete response arrived in time.
+ * - upstream_connection_lost: the connection failed after the request may have been sent.
+ */
+type UpstreamFailure = 'upstream_unreachable' | 'upstream_timeout' | 'upstream_connection_lost';
+
+const NOT_SENT_CODES = new Set([
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'UND_ERR_CONNECT_TIMEOUT',
+]);
+
+function classifyUpstreamError(err: Error): UpstreamFailure {
+  const codes = [
+    (err as { code?: string }).code,
+    (err.cause as { code?: string } | undefined)?.code,
+  ];
+  if (codes.some((code) => code !== undefined && NOT_SENT_CODES.has(code))) {
+    return 'upstream_unreachable';
+  }
+  if (
+    codes.some((code) => code !== undefined && /TIMEOUT/i.test(code)) ||
+    err.name.includes('Timeout')
+  ) {
+    return 'upstream_timeout';
+  }
+  return 'upstream_connection_lost';
 }
 
 export async function registerProjectServiceProxy(
@@ -138,9 +163,12 @@ export async function registerProjectServiceProxy(
             },
             'upstream request failed',
           );
-          // A timed-out mutation may still have been applied upstream; a read never changes state.
+          // Once a mutation may have reached the Project Service, the gateway cannot tell whether
+          // it committed: only "never sent" is a confirmed failure. A read never changes state.
           const outcomeUnknown =
-            reason === 'upstream_timeout' && request.method !== 'GET' && request.method !== 'HEAD';
+            reason !== 'upstream_unreachable' &&
+            request.method !== 'GET' &&
+            request.method !== 'HEAD';
           void sendError(
             request,
             reply,

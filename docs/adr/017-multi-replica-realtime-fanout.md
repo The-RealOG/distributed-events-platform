@@ -1,6 +1,6 @@
 # ADR-017: Multi-replica fanout with one Kafka consumer group per realtime replica
 
-**Status:** Accepted (Phase 8)
+**Status:** Accepted
 
 ## Context
 
@@ -27,7 +27,7 @@ replica; each replica sends it to its local room members only.
   events; reconnecting clients reconcile by refetching (ADR-018).
 - **Why not Redis Pub/Sub:** Kafka already provides the fanout. Pub/Sub would add a component
   whose failure silently drops notifications, with nothing gained. Consequently there is no
-  "Redis Pub/Sub failure" mode in this system (the Phase-10 failure matrix records it as
+  "Redis Pub/Sub failure" mode in this system (the failure tests record it as
   not applicable).
 
 ## Consequences

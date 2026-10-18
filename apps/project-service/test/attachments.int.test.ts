@@ -24,9 +24,17 @@ let down: Harness;
 let throttled: Harness;
 let service: AttachmentService;
 let serviceDb: DatabaseHandle;
+let storage: S3ObjectStorage;
 const bucket = 'attachments-it';
 const logLines: string[] = [];
 const MAX = 64 * 1024;
+const limits = {
+  maxBytes: MAX,
+  uploadUrlTtlSeconds: 60,
+  downloadUrlTtlSeconds: 30,
+  pendingTtlSeconds: 60,
+};
+const logger = pino({ level: 'debug' }, { write: (l: string) => void logLines.push(l) });
 
 beforeAll(async () => {
   s3 = await startS3();
@@ -37,14 +45,7 @@ beforeAll(async () => {
     forcePathStyle: true,
     credentials,
   }).send(new CreateBucketCommand({ Bucket: bucket }));
-  const limits = {
-    maxBytes: MAX,
-    uploadUrlTtlSeconds: 60,
-    downloadUrlTtlSeconds: 30,
-    pendingTtlSeconds: 60,
-  };
-  const logger = pino({ level: 'debug' }, { write: (l: string) => void logLines.push(l) });
-  const storage = new S3ObjectStorage({
+  storage = new S3ObjectStorage({
     bucket,
     region: s3.region,
     endpoint: s3.endpoint,
@@ -291,6 +292,81 @@ describe('attachments', () => {
     expect(rows.rows.every((r) => r.status === 'deleted' && r.object_deleted_at !== null)).toBe(
       true,
     );
+  });
+
+  /** An upload whose object is in storage but which is older than the pending TTL. */
+  async function abandonedUpload() {
+    const { f, task } = await setupTask();
+    const req = await h.call('POST', `/tasks/${task.id}/attachments`, {
+      as: f.owner,
+      body: { filename: 'race.txt', contentType: 'text/plain', sizeBytes: 4 },
+    });
+    await browserUpload(req.body.upload, new Blob(['race']));
+    const id: string = req.body.attachment.id;
+    const { rows } = await h.database.pool.query<{ object_key: string }>(
+      `UPDATE attachments SET created_at = now() - interval '2 hours' WHERE id = $1
+       RETURNING object_key`,
+      [id],
+    );
+    return { f, task, id, objectKey: rows[0]!.object_key };
+  }
+
+  async function attachmentState(id: string) {
+    const { rows } = await h.database.pool.query<{
+      status: string;
+      object_deleted_at: Date | null;
+    }>('SELECT status, object_deleted_at FROM attachments WHERE id = $1', [id]);
+    return rows[0];
+  }
+
+  it('the sweep abandoning an upload during its finalization: finalization reports 404, not ready', async () => {
+    const { f, id, objectKey } = await abandonedUpload();
+    // complete() sees the object, then the sweep runs before complete() writes the status.
+    const sweepAfterHead: ObjectStorage = {
+      createUpload: (input) => storage.createUpload(input),
+      createDownloadUrl: (input) => storage.createDownloadUrl(input),
+      delete: (key) => storage.delete(key),
+      head: async (key) => {
+        const head = await storage.head(key);
+        if (key === objectKey) await service.sweep();
+        return head;
+      },
+    };
+    const racing = await createHarness(undefined, {
+      attachments: new AttachmentService(serviceDb.db, sweepAfterHead, limits, logger),
+    });
+    try {
+      const done = await racing.call('POST', `/attachments/${id}/complete`, { as: f.owner });
+      expect(done.status).toBe(404);
+    } finally {
+      await racing.close();
+    }
+    expect(await attachmentState(id)).toMatchObject({ status: 'deleted' });
+    expect((await attachmentState(id))?.object_deleted_at).not.toBeNull();
+  });
+
+  it('a finalization during the sweep: the response and the stored state agree', async () => {
+    const { f, task, id, objectKey } = await abandonedUpload();
+    // The user finalizes while the sweep is about to delete the object.
+    let completion: { status: number } | undefined;
+    const completeBeforeDelete: ObjectStorage = {
+      createUpload: (input) => storage.createUpload(input),
+      createDownloadUrl: (input) => storage.createDownloadUrl(input),
+      head: (key) => storage.head(key),
+      delete: async (key) => {
+        if (key === objectKey && !completion) {
+          completion = await h.call('POST', `/attachments/${id}/complete`, { as: f.owner });
+        }
+        await storage.delete(key);
+      },
+    };
+    await new AttachmentService(serviceDb.db, completeBeforeDelete, limits, logger).sweep();
+
+    // The sweep claimed the row first, so the finalization must not have reported success.
+    expect(completion?.status).toBe(404);
+    expect(await attachmentState(id)).toMatchObject({ status: 'deleted' });
+    const listed = await h.call('GET', `/tasks/${task.id}/attachments`, { as: f.owner });
+    expect(listed.body.map((a: { id: string }) => a.id)).not.toContain(id);
   });
 
   it('storage errors that are not connection failures (throttling, 5xx) are also 503, not 500', async () => {

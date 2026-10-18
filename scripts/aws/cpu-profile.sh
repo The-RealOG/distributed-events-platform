@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CPU profile of a running service under whatever load it has right now (Phase-10 bottleneck
+# CPU profile of a running service under whatever load it has right now (bottleneck
 # analysis).   scripts/aws/cpu-profile.sh [service=project-service] [seconds=20]
 # The inspector opened by SIGUSR1 listens on 127.0.0.1 inside the task only; redeploying or
 # replacing the task closes it.

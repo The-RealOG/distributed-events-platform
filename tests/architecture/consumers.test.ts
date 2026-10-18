@@ -4,10 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Structural rules of Phases 6–7 (ADR-014, ADR-015):
+ * Structural rules of the activity projection and the board cache (ADR-014, ADR-015):
  * - Cache invalidation reaches Redis only through committed events: the Project Service reads
  *   and fills the board cache but never invalidates it (that would be a dual write).
- * - The Activity Service applies events only through the Phase-5 idempotent primitive, under
+ * - The Activity Service applies events only through the idempotent primitive (ADR-013), under
  *   its fixed logical name.
  */
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');

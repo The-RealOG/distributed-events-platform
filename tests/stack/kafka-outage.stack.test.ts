@@ -10,7 +10,7 @@ import { pino } from 'pino';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 /**
- * THE Phase 4 demonstration, on the real Compose stack:
+ * The outbox demonstration, on the real Compose stack:
  *   Kafka down → real mutations through gateway → project-service → PostgreSQL succeed →
  *   their events wait in the outbox → Kafka back → the running outbox-publisher drains the
  *   backlog on its own → a probe consumer sees every event with its original identity.
@@ -182,7 +182,7 @@ beforeAll(async () => {
   expect(await kafkaReachable()).toBe(true);
 });
 
-describe('Phase 4 demonstration on the Compose stack', () => {
+describe('outbox demonstration on the Compose stack', () => {
   it('Invariant 3: Kafka down → mutations commit, events wait in the outbox, then drain automatically', async () => {
     step('Kafka is healthy. Stopping it.');
     compose('stop kafka');

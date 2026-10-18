@@ -1,7 +1,7 @@
 # ADR-010: Kafka as the domain-event transport
 
-**Status:** Accepted (Phase 3). The transport and contracts exist; nothing publishes from the
-request path yet (see "Relationship to the outbox").
+**Status:** Accepted. Events reach Kafka only through the transactional outbox (see
+"Relationship to the outbox").
 
 ## Context
 
@@ -17,8 +17,8 @@ read at their own pace, replay after downtime and scale separately.
 ### Transport
 
 Apache Kafka (single-node KRaft locally; MSK or another managed Kafka later), with **one
-topic for all domain events**, `domain.events`, plus `domain.events.dlq` (created now, used
-from Phase 9). Topics are created by an idempotent init job (`kafka-init`). Broker-side
+topic for all domain events**, `domain.events`, plus `domain.events.dlq` for dead-lettered
+messages (ADR-019). Topics are created by an idempotent init job (`kafka-init`). Broker-side
 auto-creation is disabled, so a mistyped topic fails loudly.
 
 Why Kafka rather than a queue: consumers need **independent copies of the same stream**
@@ -58,7 +58,7 @@ ordering**. A work queue gives one copy per message and no replay.
 - Consumer: the offset is marked only after the handler resolves, and auto-committed per batch.
   A crash between handling and commit means redelivery.
 - So every consumer must tolerate duplicates. Idempotency uses `eventId` recorded in the same
-  database transaction as the side effect (Phase 5). **We do not claim exactly-once.** Kafka's
+  database transaction as the side effect (ADR-013). **We do not claim exactly-once.** Kafka's
   transactions give exactly-once only for Kafka-to-Kafka pipelines, and our side effects are in
   PostgreSQL, Redis and WebSockets.
 
@@ -95,10 +95,9 @@ keeps that migration open.
 
 A message that fails decoding or validation is logged (topic, partition, offset, key,
 classified reason; never the raw bytes), reported to a hook, and **skipped** (its offset is
-committed). One bad message can never block its partition or loop forever. Copying it to
-`domain.events.dlq` for inspection and replay is Phase 9. Handler failures on _valid_ events are
-a different case: they are rethrown and redelivered. Bounded retries plus the DLQ for those
-also land in Phase 9.
+committed). One bad message can never block its partition or loop forever. With a DLQ configured
+it is also copied to `domain.events.dlq` for inspection and replay. Handler failures on _valid_
+events are a different case: they are retried within bounds and then dead-lettered (ADR-019).
 
 ### Client library
 
@@ -133,8 +132,8 @@ offers a KafkaJS-compatible API. The package boundary (`@dpp/kafka`) keeps that 
 The Project Service must not call `kafka.send()` after committing a database change. If Kafka
 is down, or the process dies between the commit and the send, the event is lost while the
 change stands. A send before the commit can announce a change that is then rolled back.
-Phase 4 writes each event into an `outbox_events` row **in the same transaction** as the
-change. A separate publisher then delivers outbox rows with `DomainEventProducer`. Until then,
+The project service writes each event into an `outbox_events` row **in the same transaction** as the
+change. A separate publisher then delivers outbox rows with `DomainEventProducer`.
 `tests/architecture/request-path.test.ts` fails if the Project Service, the gateway or the web
 app depends on KafkaJS or `@dpp/kafka`. The Playwright spec `kafka-independence.spec.ts` shows
 the whole application working with the broker stopped.

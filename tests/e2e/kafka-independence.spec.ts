@@ -4,10 +4,10 @@ import { expect, test } from '@playwright/test';
 import { column, seedProject, signInAs } from './support.js';
 
 /**
- * Phase 3 property: Kafka is available infrastructure, but serving project-management traffic
+ * Kafka independence: Kafka is available infrastructure, but serving project-management traffic
  * does not depend on it. With the broker stopped, the full browser → gateway →
- * project-service → PostgreSQL path must keep working. (From Phase 4, mutations will still
- * succeed with Kafka down, but their events will wait in the outbox.)
+ * project-service → PostgreSQL path must keep working. Mutations succeed with Kafka down; their
+ * events wait in the outbox.
  */
 const repoRoot = resolve(import.meta.dirname, '../..');
 const compose = (args: string) =>

@@ -1,5 +1,5 @@
-# Valkey (Redis-compatible) on ElastiCache for Phase 7 caching. Disabled by default: nothing
-# uses it yet, and an idle node costs money every hour. Set enable_redis = true when needed.
+# Valkey (Redis-compatible) on ElastiCache for the shared board cache (ADR-015). Created only when
+# `enabled` (the dev environment's enable_redis, true by default); a node costs money every hour.
 variable "name" { type = string }
 variable "enabled" { type = bool }
 variable "subnet_ids" { type = list(string) }
@@ -15,7 +15,7 @@ resource "aws_elasticache_subnet_group" "this" {
 resource "aws_elasticache_replication_group" "this" {
   count                      = var.enabled ? 1 : 0
   replication_group_id       = var.name
-  description                = "dpp cache (Phase 7)"
+  description                = "dpp board cache"
   engine                     = "valkey"
   node_type                  = var.node_type
   num_cache_clusters         = 1

@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 // Applies one deliberate break, rebuilds, runs its tests, restores the files.
 // Exit 0 when the outcome is as expected (tests fail; baseline: tests pass), 1 otherwise.
-//   node scripts/mutations/run.mjs <id>      node scripts/mutations/run.mjs --list [phase]
+//   node scripts/mutations/run.mjs <id>      node scripts/mutations/run.mjs --list [group]
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { mutations } from './mutations.mjs';
 
-const [arg, phase] = process.argv.slice(2);
+const [arg, group] = process.argv.slice(2);
 if (arg === '--list') {
   const ids = mutations
-    .filter((m) => !phase || String(m.phase) === phase || m.id.startsWith(phase))
+    .filter((m) => !group || m.group === group || m.id.startsWith(group))
     .map((m) => m.id);
   console.log(JSON.stringify(ids));
   process.exit(0);

@@ -1,6 +1,6 @@
 # ADR-012: AWS development runtime
 
-**Status:** Accepted (Phase 3.5)
+**Status:** Accepted
 
 ## Context
 
@@ -122,10 +122,11 @@ The S3 backend uses a versioned, encrypted, TLS-only, private bucket with **S3 n
 (`use_lockfile`). DynamoDB locking is deprecated in current Terraform. The bucket is created by
 an idempotent AWS CLI script (`aws:bootstrap`) and is not removed by `aws:destroy`.
 
-### Redis: ready, off
+### Redis
 
-The ElastiCache (Valkey) module exists but `enable_redis = false`. Nothing uses a cache until
-Phase 7, and an idle node costs every hour.
+A single-node ElastiCache (Valkey) group holds the shared board cache (ADR-015). It is on by
+default (`enable_redis = true`); setting it to `false` removes the node, which costs money every
+hour, and the services fall back to PostgreSQL for every board read.
 
 ### Security
 

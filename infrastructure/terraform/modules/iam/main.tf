@@ -136,7 +136,7 @@ resource "aws_iam_role_policy" "msk_consumer" {
 }
 
 # Consumers that dead-letter (ADR-019) may write to the DLQ topic, and only to it. Without this,
-# every DLQ write on MSK fails with TOPIC_AUTHORIZATION_FAILED (found in the Phase-9 AWS demo).
+# every DLQ write on MSK fails with TOPIC_AUTHORIZATION_FAILED (found by the DLQ demo on AWS).
 locals {
   dlq_writers = ["activity-service"]
 }

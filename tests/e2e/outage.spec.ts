@@ -43,11 +43,23 @@ for (const dependency of ['postgres', 'project-service'] as const) {
     request,
   }) => {
     const seed = await seedProject(request);
-    await seed.client.post('/tasks', {
+    const created = await seed.client.post('/tasks', {
       projectId: seed.projectId,
       columnId: seed.columns[0]!.id,
       title: 'Survives the outage',
     });
+    expect(created.status).toBe(201);
+    // The seed read the board before this create, so other clients see the task only once its
+    // event has invalidated the shared board cache (ADR-015). An earlier spec restarts Kafka,
+    // and consumers rejoin their groups only after the old members' session timeout.
+    await expect
+      .poll(
+        async () =>
+          (await seed.client.get(`/projects/${seed.projectId}/board`)).body?.columns?.[0]?.tasks
+            ?.length,
+        { timeout: 90_000, intervals: [1_000] },
+      )
+      .toBe(1);
     const context = await browser.newContext();
     await signInAs(context, seed.owner);
     const page = await context.newPage();

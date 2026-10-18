@@ -78,6 +78,19 @@ export interface DomainEventConsumerOptions {
 }
 
 /**
+ * What the consumer throws to KafkaJS when a message must be redelivered. Always retriable (see
+ * DomainEventConsumer); the original error is logged, not attached, because KafkaJS decides
+ * whether to restart from the innermost `cause`.
+ */
+export class RedeliverError extends Error {
+  readonly retriable = true;
+  constructor(message: string) {
+    super(message);
+    this.name = 'RedeliverError';
+  }
+}
+
+/**
  * Consumes and validates DomainEvents.
  *
  * Offsets: KafkaJS auto-commit. An offset is marked consumed only after `handler` resolves,
@@ -97,19 +110,6 @@ export interface DomainEventConsumerOptions {
  * consumer for good while the process stayed up.) Handlers with side effects wrap them with
  * createIdempotentHandler (@dpp/database, ADR-013) so redeliveries are harmless.
  */
-/**
- * What the consumer throws to KafkaJS when a message must be redelivered. Always retriable (see
- * the class comment); the original error is logged, not attached, because KafkaJS decides
- * whether to restart from the innermost `cause`.
- */
-export class RedeliverError extends Error {
-  readonly retriable = true;
-  constructor(message: string) {
-    super(message);
-    this.name = 'RedeliverError';
-  }
-}
-
 export class DomainEventConsumer {
   readonly #consumer: Consumer;
   readonly #logger: Logger;
@@ -148,7 +148,7 @@ export class DomainEventConsumer {
     this.#consumer.on(this.#consumer.events.GROUP_JOIN, ({ payload }) => {
       this.#assigned = Object.entries(payload.memberAssignment).map(([topic, partitions]) => ({
         topic,
-        partitions: [...partitions].sort(),
+        partitions: [...partitions].sort((a, b) => a - b),
       }));
       this.#joined = true;
       this.#crashed = false;
@@ -223,7 +223,6 @@ export class DomainEventConsumer {
       consumerGroup: this.#options.groupId,
     };
     const where = { topic, partition, offset: message.offset, key: metadata.key };
-    const source = { topic, partition, offset: message.offset, key: metadata.key };
 
     const decoded = decodeDomainEvent(message.value);
     if (!decoded.ok) {
@@ -247,7 +246,7 @@ export class DomainEventConsumer {
             ),
             attempts: 1,
             failedAt: new Date().toISOString(),
-            source,
+            source: where,
             ...rawForDlq(message.value),
           },
           where,
@@ -291,7 +290,7 @@ export class DomainEventConsumer {
                 error,
                 attempts: attempt,
                 failedAt: new Date().toISOString(),
-                source,
+                source: where,
                 event,
               },
               where,
