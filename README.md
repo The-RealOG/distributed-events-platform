@@ -68,7 +68,8 @@ flowchart LR
   bytes never pass through the API.
 
 More detail is in [docs/architecture.md](docs/architecture.md),
-[docs/consistency-and-delivery.md](docs/consistency-and-delivery.md) and the decision records in
+[docs/consistency-and-delivery.md](docs/consistency-and-delivery.md),
+[docs/configuration.md](docs/configuration.md) (every environment variable) and the decision records in
 [docs/adr/](docs/adr/).
 
 ## Technology Stack
@@ -150,8 +151,8 @@ npm run test:stack         # tests that drive the Compose stack, e.g. a Kafka ou
   require the named tests to fail. They run in GitHub Actions through `mutations.yml`, for one
   group (`outbox`, `consumers`, `activity`, `cache`, `realtime`, `attachments`, `api`) or all.
 
-In GitHub Actions, `ci.yml` runs static checks, `npm audit`, gitleaks, unit tests and the
-integration suites (sharded) on every push to `main` and on pull requests. `e2e.yml` builds the
+In GitHub Actions, `ci.yml` runs static checks, `npm audit`, gitleaks, unit tests, image checks
+(hadolint, non-root, Trivy) and the integration suites (sharded) on every push to `main` and on pull requests. `e2e.yml` builds the
 Compose stack and runs Playwright nightly and on demand. See [docs/ci.md](docs/ci.md).
 
 ## AWS Deployment
@@ -168,8 +169,8 @@ npm run aws:status    # what is running and which commit is deployed
 npm run aws:destroy   # tear everything down (asks for confirmation)
 ```
 
-The environment bills while it exists. Setup and operations are in
-[docs/aws-development.md](docs/aws-development.md).
+The environment bills while it exists. Setup, operations and a component-by-component mapping
+from the local stack to AWS are in [docs/aws-development.md](docs/aws-development.md).
 
 ## Project Structure
 
@@ -189,7 +190,7 @@ packages/              shared code: auth, cache, config, contracts (events and H
 infrastructure/        docker/ (Dockerfiles), terraform/ (AWS), observability/ (Prometheus, Grafana)
 scripts/               aws/ (deploy and operations), mutations/ (deliberate breaks), load/, outbox/
 tests/                 cross-service integration, architecture, e2e (Playwright), stack, load (k6)
-docs/                  architecture, consistency model, AWS and CI notes, ADRs
+docs/                  architecture, consistency model, configuration, AWS and CI notes, ADRs
 ```
 
 ### Following a change through the system
@@ -232,10 +233,11 @@ The reasoning behind each choice is in [docs/adr/](docs/adr/).
 
 ## Limitations
 
-- **AWS verification is not current.** The AWS environment was last deployed and tested before
-  these changes: outbox retention, `Idempotency-Key` support, gateway rate limiting, the
-  `OUTCOME_UNKNOWN` handling of dropped connections, the attachment sweep fix and
-  `min.insync.replicas=2`. They are covered by CI, not by an AWS run.
+- **AWS verification covers the normal path, not every failure drill.** On 2026-10-18 the
+  current code (`9dff102`) was deployed and passed `aws:smoke`, `aws:test` (correlation across
+  every hop, Kafka probe, network boundaries, CRUD with the publisher stopped) and
+  `aws:invariants`. The failure demos (`aws:demo:failures`: RDS and MSK broker reboots, task
+  stops) were last run on earlier code, before `min.insync.replicas=2`.
 - **Kafka favours durability over availability.** MSK runs `min.insync.replicas=2` with two
   brokers, so losing a broker pauses publication (events wait in the outbox) rather than risking
   acknowledged events.

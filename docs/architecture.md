@@ -105,7 +105,8 @@ name). No domain code knows which one it is running in.
 ## Source of truth
 
 PostgreSQL holds all authoritative state ([ADR-001](adr/001-postgresql-source-of-truth.md)).
-The browser cache, and later Redis and WebSocket messages, are all derived copies.
+The browser cache, the Valkey board cache, the activity projection and WebSocket notifications
+are all derived copies.
 
 ## API Gateway
 
@@ -116,10 +117,10 @@ authorization or retries.
 
 ### Request ID vs correlation ID
 
-| Header             | Scope                                                      | Who sets it                                                                                          |
-| ------------------ | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `x-request-id`     | one hop (one service handling one HTTP request)            | each service; accepted from the caller if well-formed, never forwarded upstream                      |
-| `x-correlation-id` | one logical operation across every hop (later: events too) | the browser (one per API call) or the gateway if missing/malformed; forwarded to every upstream call |
+| Header             | Scope                                                 | Who sets it                                                                                          |
+| ------------------ | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `x-request-id`     | one hop (one service handling one HTTP request)       | each service; accepted from the caller if well-formed, never forwarded upstream                      |
+| `x-correlation-id` | one logical operation across every hop and its events | the browser (one per API call) or the gateway if missing/malformed; forwarded to every upstream call |
 
 Inbound IDs are accepted only if they match `^[A-Za-z0-9._:-]{1,128}$`; anything else is
 replaced. To trace a request, look up its `x-correlation-id` (returned in response headers) in
@@ -509,7 +510,7 @@ const handler = createIdempotentHandler({
     /* write side effects with tx only */
   },
   onOutcome: (outcome) => {
-    /* processed | duplicate | failed → metrics later */
+    /* processed | duplicate | failed → consumer metrics (ADR-020) */
   },
 });
 new DomainEventConsumer({ kafka, logger, groupId: 'activity-service', topics, handler });
