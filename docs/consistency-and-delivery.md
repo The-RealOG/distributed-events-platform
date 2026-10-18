@@ -56,11 +56,13 @@ consumer, and every read model converges to PostgreSQL, within the Kafka durabil
   client must refetch before retrying.
 - **Overload.** At saturation, requests queue for project-service's 10-connection pool and fail
   after its 5 s connect timeout (503). There is no load shedding earlier.
-- **Outbox growth.** Published outbox rows are never deleted, so the table only grows. In the
-  30-minute soak, periodic 503 bursts appeared after about 22 minutes. They coincided with
-  auto-ANALYZE of `outbox_events` and with slow new TLS connections to RDS.
-  A retention job (delete published rows after Kafka's retention) is the next step. Not done in
-  Phase 10.
+- **Outbox retention.** The outbox publisher deletes events Kafka acknowledged more than
+  `OUTBOX_RETENTION_HOURS` ago (default 168, matching Kafka's 7-day retention), in batches.
+  Unpublished events are never deleted. Consumers' `processed_events` markers are kept: a DLQ
+  replay can deliver an old event long after Kafka's retention, and the marker is what keeps it
+  from applying twice, so that table still grows and needs a deliberate archiving policy.
+  Migration 0006 creates its index with a plain `CREATE INDEX`, which blocks writes while it
+  builds; on a large existing table it should be built `CONCURRENTLY` instead.
 - **No rate limiting.** Neither the gateway, the ALB nor CloudFront limits request rates per client.
   One client can saturate the service.
 - **Realtime.** Delivery is best effort (no replay). Clients recover by refetching on (re)subscribe,

@@ -184,6 +184,31 @@ export async function releaseOutboxClaims(
   return result.rowCount ?? 0;
 }
 
+/**
+ * Deletes up to `limit` events that Kafka acknowledged more than `olderThanHours` ago. Only
+ * published rows qualify, so the claim order (which looks only at unpublished rows) and every
+ * pending event are untouched. SKIP LOCKED lets several publisher replicas prune concurrently
+ * without waiting on each other. Returns the number deleted; the caller repeats while a batch is
+ * full.
+ */
+export async function prunePublishedOutboxEvents(
+  db: DbExecutor,
+  options: { olderThanHours: number; limit: number },
+): Promise<number> {
+  const result = await db.execute(sql`
+    DELETE FROM outbox_events
+    WHERE sequence_id IN (
+      SELECT sequence_id FROM outbox_events
+      WHERE published_at IS NOT NULL
+        AND published_at < now() - make_interval(hours => ${options.olderThanHours})
+      ORDER BY published_at
+      LIMIT ${options.limit}
+      FOR UPDATE SKIP LOCKED
+    )
+  `);
+  return result.rowCount ?? 0;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Diagnostics (scripts/outbox, logs).
 

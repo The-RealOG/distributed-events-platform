@@ -25,6 +25,14 @@ const check = (ok, label, detail) => {
 // Consistent snapshot for all reads.
 await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
 
+// The outbox publisher deletes published events after OUTBOX_RETENTION_HOURS, so checks that
+// join tasks or activity to their events only hold for rows that changed within that window.
+const RETENTION_HOURS = Number(process.env.OUTBOX_RETENTION_HOURS ?? 168);
+if (!Number.isInteger(RETENTION_HOURS) || RETENTION_HOURS <= 0) {
+  throw new Error('OUTBOX_RETENTION_HOURS must be a positive integer');
+}
+const recent = (column) => `${column} > now() - make_interval(hours => ${RETENTION_HOURS})`;
+
 const outbox = await one(`SELECT count(*)::int AS total,
   count(*) FILTER (WHERE published_at IS NULL)::int AS unpublished,
   count(*) FILTER (WHERE published_at IS NULL AND created_at < now() - interval '1 minute')::int AS stuck,
@@ -40,15 +48,18 @@ const versions = await one(`WITH ev AS (
     SELECT aggregate_id, max(aggregate_version) AS maxv, count(*) AS n, count(DISTINCT aggregate_version) AS nd, min(aggregate_version) AS minv
     FROM outbox_events WHERE aggregate_type = 'task' GROUP BY aggregate_id)
   SELECT count(*)::int AS tasks,
-    count(*) FILTER (WHERE ev.aggregate_id IS NULL)::int AS without_events,
+    count(*) FILTER (WHERE ev.aggregate_id IS NULL AND ${recent('t.updated_at')})::int AS without_events,
     count(*) FILTER (WHERE ev.maxv <> t.version)::int AS version_mismatch,
-    count(*) FILTER (WHERE ev.n <> ev.nd OR ev.minv <> 1 OR ev.maxv <> ev.n)::int AS gaps_or_repeats
+    -- Retained events are contiguous and unrepeated; a task created within the retention window
+    -- still has all of them, from version 1 (older tasks may have had a prefix pruned).
+    count(*) FILTER (WHERE ev.n <> ev.nd OR ev.maxv - ev.minv + 1 <> ev.n
+      OR (ev.minv <> 1 AND ${recent('t.created_at')}))::int AS gaps_or_repeats
   FROM tasks t LEFT JOIN ev ON ev.aggregate_id = t.id`);
 check(
   versions.without_events === 0 &&
     versions.version_mismatch === 0 &&
     versions.gaps_or_repeats === 0,
-  'every task version is explained by exactly one event per version (1..n, no gaps, no repeats)',
+  `every task version is explained by exactly one event per version (no gaps or repeats; events within ${RETENTION_HOURS} h retention)`,
   `${versions.tasks} tasks; ${versions.without_events} without events; ${versions.version_mismatch} version ≠ last event; ${versions.gaps_or_repeats} with gaps/repeats`,
 );
 
@@ -81,7 +92,7 @@ check(
 );
 
 const injected = await one(
-  `SELECT count(*)::int AS n FROM activity_events a WHERE NOT EXISTS (SELECT 1 FROM outbox_events o WHERE o.event_id = a.event_id)`,
+  `SELECT count(*)::int AS n FROM activity_events a WHERE ${recent('a.occurred_at')} AND NOT EXISTS (SELECT 1 FROM outbox_events o WHERE o.event_id = a.event_id)`,
 );
 console.log(
   `NOTE activity rows for tool-injected events (kafka-tools demos, no outbox row): ${injected.n}`,

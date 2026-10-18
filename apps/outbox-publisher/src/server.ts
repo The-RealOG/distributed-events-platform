@@ -7,6 +7,7 @@ import { buildApp, SERVICE_NAME } from './app.js';
 import { loadPublisherConfig } from './config.js';
 import { registerOutboxMetrics } from './metrics.js';
 import { OutboxPublisher } from './publisher.js';
+import { OutboxRetention } from './retention.js';
 
 const config = loadPublisherConfig();
 const logger = pino(createLoggerOptions(SERVICE_NAME, config.LOG_LEVEL));
@@ -35,6 +36,12 @@ const publisher = new OutboxPublisher({
   // No `faults`: fault injection exists only for tests that construct the publisher themselves.
   observer: registerOutboxMetrics(metrics, database.db),
 });
+const retention = new OutboxRetention({
+  db: database.db,
+  logger,
+  olderThanHours: config.OUTBOX_RETENTION_HOURS,
+  intervalMs: config.OUTBOX_RETENTION_INTERVAL_MS,
+});
 const app = buildApp(logger, database, publisher, metrics);
 
 installGracefulShutdown({
@@ -42,6 +49,7 @@ installGracefulShutdown({
   timeoutMs: config.SHUTDOWN_TIMEOUT_MS,
   steps: [
     // Stop claiming, finish the event in flight, release leases, disconnect Kafka.
+    { name: 'retention', run: () => retention.stop() },
     { name: 'publisher', run: () => publisher.stop({ timeoutMs: config.SHUTDOWN_TIMEOUT_MS / 2 }) },
     { name: 'http', run: () => app.close() },
     { name: 'database', run: () => database.close() },
@@ -51,6 +59,7 @@ installGracefulShutdown({
 try {
   await app.listen({ host: config.HOST, port: config.PORT });
   publisher.start();
+  retention.start();
   logger.info({ workerId: config.OUTBOX_WORKER_ID }, 'outbox publisher started');
 } catch (err) {
   logger.fatal({ err }, 'failed to start');

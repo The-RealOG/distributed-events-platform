@@ -223,6 +223,10 @@ export const outboxEvents = pgTable(
     index('outbox_events_unpublished_key_seq_idx')
       .on(t.partitionKey, t.sequenceId)
       .where(sql`${t.publishedAt} is null`),
+    // Retention: published rows by age (unpublished rows are never pruned, so they stay out).
+    index('outbox_events_published_at_idx')
+      .on(t.publishedAt)
+      .where(sql`${t.publishedAt} is not null`),
     check('outbox_events_attempt_count_nonnegative', sql`${t.attemptCount} >= 0`),
   ],
 );

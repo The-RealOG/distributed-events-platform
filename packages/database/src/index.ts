@@ -21,6 +21,7 @@ export {
   markOutboxPublished,
   outboxRecent,
   outboxStatus,
+  prunePublishedOutboxEvents,
   recordOutboxFailure,
   releaseOutboxClaims,
   sanitizeOutboxError,

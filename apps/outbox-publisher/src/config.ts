@@ -21,6 +21,9 @@ const envSchema = baseEnvSchema
     OUTBOX_BACKOFF_BASE_MS: positiveInt.default(1_000),
     OUTBOX_BACKOFF_MAX_MS: positiveInt.default(60_000),
     // Identifies this replica in claimed_by. Unique per process by default.
+    // Published events are kept this long (Kafka's own retention is 7 days), then deleted.
+    OUTBOX_RETENTION_HOURS: positiveInt.default(168),
+    OUTBOX_RETENTION_INTERVAL_MS: positiveInt.min(1_000).default(600_000),
     OUTBOX_WORKER_ID: z.string().min(1).max(100).default(`${hostname()}-${process.pid}`),
   })
   .refine((c) => c.OUTBOX_BACKOFF_MAX_MS >= c.OUTBOX_BACKOFF_BASE_MS, {

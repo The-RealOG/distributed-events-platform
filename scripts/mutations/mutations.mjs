@@ -1322,6 +1322,17 @@ export const mutations = [
     ],
     tests: [{ ...PS, files: ['test/idempotency.int.test.ts'], name: 'replays the first response' }],
   },
+  {
+    id: 'p10-06-retention-deletes-pending-events',
+    phase: 10,
+    title: 'outbox retention deletes old events that were never published (lost events)',
+    edits: [
+      {
+        file: OUTBOX,
+        find: '      WHERE published_at IS NOT NULL\n        AND published_at < now()',
+        replace:
+          '      WHERE (published_at IS NOT NULL OR published_at IS NULL)\n        AND coalesce(published_at, created_at) < now()',
+      },
     ],
     tests: [{ ...PUB, files: ['test/retention.int.test.ts'], name: 'never pending ones' }],
   },
