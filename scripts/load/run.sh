@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One measured load run, end to end, with its evidence kept in the repository:
+# One measured load run, end to end, its evidence kept in tests/load/results/<label> (git-ignored):
 #   metrics + PostgreSQL stats snapshot → k6 on a GitHub runner (load.yml) → download results →
 #   metrics + PostgreSQL stats snapshot → CloudWatch window → report.md.
 #   scripts/load/run.sh <label> <http|realtime> <scenario> "<k6 env, e.g. VUS=100 DURATION=5m>"
