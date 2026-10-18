@@ -15,6 +15,11 @@ const CONNECTIVITY_ERROR_CODES = new Set([
   '08003', // connection_does_not_exist
   '08006', // connection_failure
   '53300', // too_many_connections
+  // query_canceled: the server's statement_timeout cancelled the statement and its transaction
+  // rolled back, so nothing was applied and a retry is safe. Consumers already treat class 57
+  // as transient. (The client-side query timeout is different: the outcome is unknown, so it
+  // stays a 500.)
+  '57014',
 ]);
 
 function findCode(err: unknown, depth = 0): string | undefined {
@@ -30,7 +35,8 @@ export function pgErrorCode(err: unknown): string | undefined {
 }
 
 /**
- * True when the database could not be reached, as opposed to the query being rejected.
+ * True when the database could not be reached or could not answer in time, as opposed to the
+ * query being rejected.
  * Callers map this to 503 so clients can distinguish "retry later" from "your request is wrong".
  */
 export function isDatabaseUnavailable(err: unknown): boolean {

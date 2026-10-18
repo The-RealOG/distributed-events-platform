@@ -38,6 +38,17 @@ describe('database error classification', () => {
     expect(isDatabaseUnavailable(drizzle(withCode(PG_UNIQUE_VIOLATION)))).toBe(false);
   });
 
+  it('treats a server-side statement timeout as unavailable, but not an unknown-outcome client timeout', () => {
+    const drizzle = (cause: Error) =>
+      Object.assign(new Error('Failed query: update "tasks" set …\nparams: x', { cause }), {
+        name: 'DrizzleQueryError',
+      });
+    // statement_timeout: PostgreSQL cancelled and rolled back, so retrying is safe.
+    expect(isDatabaseUnavailable(drizzle(withCode('57014')))).toBe(true);
+    // node-postgres query_timeout: the statement may still have committed.
+    expect(isDatabaseUnavailable(drizzle(new Error('Query read timeout')))).toBe(false);
+  });
+
   it('does not treat rejected queries as unavailability', () => {
     expect(isDatabaseUnavailable(withCode(PG_UNIQUE_VIOLATION))).toBe(false);
     expect(isDatabaseUnavailable(new Error('syntax error'))).toBe(false);

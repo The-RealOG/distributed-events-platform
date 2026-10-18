@@ -1279,4 +1279,12 @@ export const mutations = [
     ],
     tests: [{ ...PS_UNIT, name: 'refuses dev login' }],
   },
+  {
+    id: 'p10-03-statement-timeout-is-500',
+    phase: 10,
+    title:
+      'a statement cancelled by statement_timeout (rolled back, safe to retry) is answered 500',
+    edits: [{ file: DB_ERRORS, find: "  '57014',\n", replace: '' }],
+    tests: [{ ...DB_UNIT, name: 'statement timeout' }],
+  },
 ];
