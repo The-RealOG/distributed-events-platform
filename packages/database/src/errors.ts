@@ -34,16 +34,21 @@ export function pgErrorCode(err: unknown): string | undefined {
   return findCode(err);
 }
 
+// Drizzle wraps driver errors; the original error is a `cause`, a few levels down at most.
+function errorChainMatches(err: unknown, pattern: RegExp): boolean {
+  for (let e: unknown = err, depth = 0; e instanceof Error && depth <= 5; e = e.cause, depth++) {
+    if (pattern.test(e.message)) return true;
+  }
+  return false;
+}
+
 /**
  * True when node-postgres gave up waiting for a statement's response (its client-side
  * query_timeout). Unlike a server-side statement timeout, the statement may still have run and
  * committed, so the outcome of a mutation is unknown.
  */
 export function isQueryTimeout(err: unknown): boolean {
-  for (let e: unknown = err, depth = 0; e instanceof Error && depth <= 5; e = e.cause, depth++) {
-    if (/^Query read timeout$/.test(e.message)) return true;
-  }
-  return false;
+  return errorChainMatches(err, /^Query read timeout$/);
 }
 
 /**
@@ -56,9 +61,5 @@ export function isDatabaseUnavailable(err: unknown): boolean {
   if (code !== undefined && CONNECTIVITY_ERROR_CODES.has(code)) return true;
   // pg-pool's acquisition timeout and node-postgres's terminated connections carry no code, and
   // Drizzle wraps them: the text is on a cause, never on DrizzleQueryError's own message.
-  for (let e: unknown = err, depth = 0; e instanceof Error && depth <= 5; e = e.cause, depth++) {
-    if (/timeout exceeded when trying to connect|Connection terminated/i.test(e.message))
-      return true;
-  }
-  return false;
+  return errorChainMatches(err, /timeout exceeded when trying to connect|Connection terminated/i);
 }

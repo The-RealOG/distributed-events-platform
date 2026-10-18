@@ -1266,9 +1266,9 @@ export const mutations = [
     edits: [
       {
         file: DB_ERRORS,
-        find: '  for (let e: unknown = err, depth = 0; e instanceof Error && depth <= 5; e = e.cause, depth++) {',
+        find: '  return errorChainMatches(err, /timeout exceeded when trying to connect|Connection terminated/i);',
         replace:
-          '  for (let e: unknown = err, depth = 0; e instanceof Error && depth <= 0; e = e.cause, depth++) {',
+          '  return err instanceof Error && /timeout exceeded when trying to connect|Connection terminated/i.test(err.message);',
       },
     ],
     tests: [{ ...DB_UNIT, name: 'Drizzle wrapped' }],
@@ -1321,5 +1321,8 @@ export const mutations = [
       },
     ],
     tests: [{ ...PS, files: ['test/idempotency.int.test.ts'], name: 'replays the first response' }],
+  },
+    ],
+    tests: [{ ...PUB, files: ['test/retention.int.test.ts'], name: 'never pending ones' }],
   },
 ];

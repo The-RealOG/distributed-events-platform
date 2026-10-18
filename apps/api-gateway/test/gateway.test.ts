@@ -410,7 +410,9 @@ describe('probes and shutdown', () => {
     const address = await app.listen({ port: 0, host: '127.0.0.1' });
 
     const inFlight = fetch(`${address}/api/me`);
-    await new Promise((r) => setTimeout(r, 50));
+    // Close only once the request is really in flight (reached the upstream). A fixed sleep raced
+    // on slow runners: the request then arrived while draining and was refused with 503.
+    while (upstream.received.length === 0) await new Promise((r) => setTimeout(r, 5));
     const closing = app.close();
 
     const res = await inFlight;
