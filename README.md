@@ -167,7 +167,7 @@ npm run test               # unit tests (no external dependencies)
 npm run test:integration   # integration tests against real PostgreSQL, Kafka, Redis and S3
                            # (LocalStack) started with Testcontainers; needs Docker
 npm run test:e2e           # Playwright against the running Compose stack
-                           # (first time: npx playwright install chromium)
+                           # (first time: npx playwright install chromium; CI: e2e.yml, nightly)
 npm run test:stack         # tests that drive the Compose stack (e.g. a Kafka outage)
 npm run check              # format, lint, typecheck, unit tests and build, as in CI
 ```
@@ -230,8 +230,6 @@ reasoning behind each choice is recorded in [docs/adr/](docs/adr/).
 - **Development-sized AWS environment.** It runs one task per service, single-AZ RDS on a
   burstable instance class, and a passwordless development login. The login is refused at
   startup unless `DEPLOYMENT_ENVIRONMENT` is a non-production value.
-- **Playwright runs locally only.** The suite includes Docker-level outages, so it is not part
-  of CI.
 
 See [docs/consistency-and-delivery.md](docs/consistency-and-delivery.md) for the precise
 guarantees and their limits.
