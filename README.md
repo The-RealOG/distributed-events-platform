@@ -69,7 +69,8 @@ flowchart LR
 
 More detail is in [docs/architecture.md](docs/architecture.md),
 [docs/consistency-and-delivery.md](docs/consistency-and-delivery.md),
-[docs/configuration.md](docs/configuration.md) (every environment variable) and the decision records in
+[docs/configuration.md](docs/configuration.md) (every environment variable),
+[docs/performance.md](docs/performance.md) (load-test method and measured results) and the decision records in
 [docs/adr/](docs/adr/).
 
 ## Technology Stack

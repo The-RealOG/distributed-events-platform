@@ -1,5 +1,5 @@
 // HTTP workload. One script, five scenarios (SCENARIO=read-heavy|balanced|write-heavy|hot-project|
-// multi-project); see tests/load/README.md.   k6 run -e BASE_URL=https://… -e SCENARIO=balanced tests/load/http.js
+// multi-project); see docs/performance.md.   k6 run -e BASE_URL=https://… -e SCENARIO=balanced tests/load/http.js
 import { check, sleep } from 'k6';
 import exec from 'k6/execution';
 import { Counter, Trend } from 'k6/metrics';
