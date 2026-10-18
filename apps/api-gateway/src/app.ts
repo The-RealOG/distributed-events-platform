@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   createLoggerOptions,
   registerHttpMetrics,
@@ -7,12 +8,13 @@ import {
 } from '@dpp/observability';
 import { closeConnectionsWhenDraining } from '@dpp/runtime';
 import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
 import helmet from '@fastify/helmet';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import type { GatewayConfig } from './config.js';
 import { registerErrorHandling } from './errors.js';
-import { registerProjectServiceProxy } from './proxy.js';
-import { registerRealtimeProxy } from './realtime-proxy.js';
+import { API_PREFIX, registerProjectServiceProxy } from './proxy.js';
+import { REALTIME_PATH, registerRealtimeProxy } from './realtime-proxy.js';
 
 export const SERVICE_NAME = 'api-gateway';
 
@@ -55,6 +57,22 @@ export async function buildApp(
     exposedHeaders: ['x-request-id', 'x-correlation-id'],
     maxAge: 600,
   });
+  // Per client and per gateway task (in-memory; with N tasks a client gets up to N × max).
+  // Probes, preflights and the WebSocket upgrade are not counted: realtime connections are
+  // authenticated and bounded by the realtime service itself.
+  await app.register(rateLimit, {
+    max: config.RATE_LIMIT_MAX,
+    timeWindow: config.RATE_LIMIT_WINDOW_MS,
+    keyGenerator: rateLimitKey,
+    allowList: (request) =>
+      request.method === 'OPTIONS' ||
+      !request.url.startsWith(`${API_PREFIX}/`) ||
+      request.url.startsWith(REALTIME_PATH),
+    errorResponseBuilder: (_request, context) => ({
+      statusCode: 429,
+      message: `Too many requests; retry after ${context.after}`,
+    }),
+  });
   // JSON API: no HTML is served, so a deny-everything CSP costs nothing.
   await app.register(helmet, {
     contentSecurityPolicy: { directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] } },
@@ -83,4 +101,18 @@ export async function buildApp(
   });
 
   return app;
+}
+
+/**
+ * The rate-limit bucket: one per user (a hash of the bearer token, never the token itself), so
+ * many users behind one address are limited independently. Requests without a token fall back
+ * to the caller's address, which behind the ALB is the load balancer's (trustProxy is off), so
+ * unauthenticated requests then share one bucket.
+ */
+export function rateLimitKey(request: FastifyRequest): string {
+  const auth = request.headers.authorization;
+  if (typeof auth === 'string' && auth.startsWith('Bearer ')) {
+    return `user:${createHash('sha256').update(auth.slice(7)).digest('hex').slice(0, 32)}`;
+  }
+  return `ip:${request.ip}`;
 }

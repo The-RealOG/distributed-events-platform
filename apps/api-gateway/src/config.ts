@@ -9,6 +9,9 @@ const envSchema = baseEnvSchema.extend(httpServerEnvSchema.shape).extend({
   UPSTREAM_CONNECT_TIMEOUT_MS: z.coerce.number().int().positive().default(2_000),
   // Must exceed the Project Service's own statement timeout so that its 503 arrives first.
   UPSTREAM_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  // Requests per client per window (a client is a user's bearer token, else the caller's IP).
+  RATE_LIMIT_MAX: z.coerce.number().int().positive().default(600),
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   BODY_LIMIT_BYTES: z.coerce
     .number()
     .int()

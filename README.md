@@ -224,7 +224,8 @@ reasoning behind each choice is recorded in [docs/adr/](docs/adr/).
 
 - **Kafka durability.** The development MSK cluster runs `min.insync.replicas=1`. During a
   broker outage, an acknowledged event can exist on one broker only.
-- **No rate limiting.** There is none at the edge or in the gateway.
+- **Rate limits are per gateway task.** Each user is limited (600 requests/min by default), but
+  the counters are in memory, so the effective limit grows with the number of gateway tasks.
 - **Development-sized AWS environment.** It runs one task per service, single-AZ RDS on a
   burstable instance class, and a passwordless development login. The login is refused at
   startup unless `DEPLOYMENT_ENVIRONMENT` is a non-production value.

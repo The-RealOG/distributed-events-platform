@@ -309,6 +309,42 @@ describe('browser boundary', () => {
     expect(upstream.received).toHaveLength(0);
   });
 
+  it('limits each user separately and answers 429 RATE_LIMITED with Retry-After', async () => {
+    const upstream = await withUpstream();
+    const { app } = await gatewayFor(upstream.url, { RATE_LIMIT_MAX: '2' });
+    const asUser = (token: string) =>
+      app.inject({ method: 'GET', url: '/api/me', headers: { authorization: `Bearer ${token}` } });
+
+    const statuses = [(await asUser('alice')).statusCode, (await asUser('alice')).statusCode];
+    const limited = await asUser('alice');
+    const otherUser = await asUser('bob');
+
+    expect(statuses).toEqual([200, 200]);
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json().error.code).toBe('RATE_LIMITED');
+    expect(limited.headers['retry-after']).toBeDefined();
+    expect(otherUser.statusCode).toBe(200);
+    // The limited request never reached the project service.
+    expect(upstream.received).toHaveLength(3);
+  });
+
+  it('does not count probes, preflights or the WebSocket path against the limit', async () => {
+    const upstream = await withUpstream();
+    const { app } = await gatewayFor(upstream.url, { RATE_LIMIT_MAX: '1' });
+
+    for (let i = 0; i < 3; i++) {
+      expect((await app.inject({ method: 'GET', url: '/health' })).statusCode).toBe(200);
+      const preflight = await app.inject({
+        method: 'OPTIONS',
+        url: '/api/tasks',
+        headers: { origin: 'http://localhost:8080', 'access-control-request-method': 'POST' },
+      });
+      expect(preflight.statusCode).toBe(204);
+      const realtime = await app.inject({ method: 'GET', url: '/api/realtime' });
+      expect(realtime.statusCode).not.toBe(429);
+    }
+  });
+
   it('lets the browser send the headers the web client uses (preflight)', async () => {
     const upstream = await withUpstream();
     const { app } = await gatewayFor(upstream.url);

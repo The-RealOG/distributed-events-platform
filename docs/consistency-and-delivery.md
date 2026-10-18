@@ -63,7 +63,11 @@ consumer, and every read model converges to PostgreSQL, within the Kafka durabil
   from applying twice, so that table still grows and needs a deliberate archiving policy.
   Migration 0006 creates its index with a plain `CREATE INDEX`, which blocks writes while it
   builds; on a large existing table it should be built `CONCURRENTLY` instead.
-- **No rate limiting.** Neither the gateway, the ALB nor CloudFront limits request rates per client.
-  One client can saturate the service.
+- **Rate limiting is per gateway task.** The gateway allows `RATE_LIMIT_MAX` requests (default 600) per `RATE_LIMIT_WINDOW_MS` (default 60 s) per client, where a client is a user's bearer
+  token. Over the limit it answers 429 `RATE_LIMITED` with `Retry-After`. The counters are
+  in-memory, so with N gateway tasks a user gets up to N × the limit. Requests without a token
+  are keyed by the caller's address, which behind the ALB is the load balancer's (the gateway
+  does not trust `X-Forwarded-For`), so they share one bucket. Probes, CORS preflights and the
+  WebSocket upgrade are not counted.
 - **Realtime.** Delivery is best effort (no replay). Clients recover by refetching on (re)subscribe,
   which was verified on AWS.

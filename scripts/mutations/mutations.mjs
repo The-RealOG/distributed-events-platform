@@ -113,6 +113,12 @@ const PS_ERRORS_UNIT = {
   files: ['src/http/errors.test.ts'],
 };
 const PS_IDEMPOTENCY = 'apps/project-service/src/http/idempotency.ts';
+const GATEWAY_APP = 'apps/api-gateway/src/app.ts';
+const GATEWAY_UNIT = {
+  cwd: 'apps/api-gateway',
+  config: 'vitest.config.ts',
+  files: ['test/gateway.test.ts'],
+};
 const DB_UNIT = {
   cwd: 'packages/database',
   config: 'vitest.config.ts',
@@ -1256,7 +1262,12 @@ export const mutations = [
     phase: 10,
     title: 'no mutation: database error classification passes',
     edits: [],
-    tests: [DB_UNIT, PS_UNIT, PS_ERRORS_UNIT],
+    tests: [
+      DB_UNIT,
+      PS_UNIT,
+      PS_ERRORS_UNIT,
+      { ...GATEWAY_UNIT, name: 'limits each user separately' },
+    ],
     expect: 'pass',
   },
   {
@@ -1335,5 +1346,18 @@ export const mutations = [
       },
     ],
     tests: [{ ...PUB, files: ['test/retention.int.test.ts'], name: 'never pending ones' }],
+  },
+  {
+    id: 'p10-07-rate-limit-shared-by-all-users',
+    phase: 10,
+    title: 'every authenticated user shares one rate-limit bucket (one busy user blocks everyone)',
+    edits: [
+      {
+        file: GATEWAY_APP,
+        find: "    return `user:${createHash('sha256').update(auth.slice(7)).digest('hex').slice(0, 32)}`;",
+        replace: "    return 'user:everyone';",
+      },
+    ],
+    tests: [{ ...GATEWAY_UNIT, name: 'limits each user separately' }],
   },
 ];

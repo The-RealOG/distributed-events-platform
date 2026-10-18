@@ -20,6 +20,8 @@ describe('toApiError', () => {
       kind: 'outcome_unknown',
       message: 'may have been applied',
     });
+    expect(toApiError(429, errorBody('RATE_LIMITED', 'slow down')).kind).toBe('rate_limited');
+    expect(toApiError(429, 'Too Many Requests').kind).toBe('rate_limited');
     expect(toApiError(409, errorBody('CONFLICT', 'dup')).kind).toBe('conflict');
   });
 

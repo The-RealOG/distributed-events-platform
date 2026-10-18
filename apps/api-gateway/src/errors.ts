@@ -22,6 +22,9 @@ export function registerErrorHandling(app: FastifyInstance): void {
   );
 
   app.setErrorHandler((err: FastifyError, request, reply) => {
+    if (err.statusCode === 429) {
+      return sendError(request, reply, 429, 'RATE_LIMITED', err.message);
+    }
     if (err.statusCode === 413) {
       return sendError(request, reply, 413, 'PAYLOAD_TOO_LARGE', 'Request body too large');
     }

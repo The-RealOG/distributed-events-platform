@@ -10,6 +10,7 @@ export type ApiErrorKind =
   | 'payload_too_large'
   | 'unavailable'
   | 'outcome_unknown'
+  | 'rate_limited'
   | 'network'
   | 'unexpected';
 
@@ -48,6 +49,7 @@ const FALLBACK_MESSAGES: Record<ApiErrorKind, string> = {
   payload_too_large: 'That is too large to send.',
   unavailable: 'The service is temporarily unavailable. Please try again shortly.',
   outcome_unknown: 'The request timed out and may have been saved. Refresh before trying again.',
+  rate_limited: 'Too many requests. Please wait a moment and try again.',
   network: 'Can’t reach the server. Check your connection and try again.',
   unexpected: 'Something unexpected happened. Please try again.',
 };
@@ -77,6 +79,8 @@ function kindFromCode(code: ErrorCode): ApiErrorKind {
       return 'unavailable';
     case 'OUTCOME_UNKNOWN':
       return 'outcome_unknown';
+    case 'RATE_LIMITED':
+      return 'rate_limited';
     case 'INTERNAL':
       return 'unexpected';
   }
@@ -89,6 +93,7 @@ function kindFromStatus(status: number): ApiErrorKind {
   if (status === 404) return 'not_found';
   if (status === 409) return 'conflict';
   if (status === 413) return 'payload_too_large';
+  if (status === 429) return 'rate_limited';
   if (status === 502 || status === 503 || status === 504) return 'unavailable';
   return 'unexpected';
 }
