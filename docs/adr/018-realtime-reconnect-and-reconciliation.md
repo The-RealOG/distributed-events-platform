@@ -1,6 +1,6 @@
 # ADR-018: Client reconnect with bounded jittered backoff, and reconciliation by refetch
 
-**Status:** Accepted (Phase 8)
+**Status:** Accepted
 
 ## Context
 

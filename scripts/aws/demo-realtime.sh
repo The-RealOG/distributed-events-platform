@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phases 8–9 in the deployed environment: realtime between two users, refusals, reconnect
+# In the deployed environment: realtime between two users, refusals, reconnect
 # reconciliation, realtime replica replacement, direct-to-S3 attachments.
 #   npm run aws:demo:realtime
 source "$(dirname "$0")/lib.sh"

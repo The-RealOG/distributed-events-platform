@@ -1,6 +1,6 @@
 # ADR-016: Realtime collaboration as notifications over WebSockets, fed only by Kafka
 
-**Status:** Accepted (Phase 8)
+**Status:** Accepted
 
 ## Context
 
@@ -50,7 +50,7 @@ project-service ─ PostgreSQL (change + outbox) ─▶ outbox-publisher ─▶ 
 - Realtime is **best effort and ephemeral**; correctness comes from PostgreSQL via HTTP. This is
   why no replay, sequence numbers or per-client buffers are needed.
 - Notification latency = outbox poll + publish + consumer fetch + send. Measured on AWS in the
-  Phase-9 demo: B was notified ~300–350 ms after A's HTTP response.
+  two-user demo: B was notified ~300–350 ms after A's HTTP response.
 - An extra small service and an extra hop (gateway relay) versus exposing the realtime service
   directly; in exchange there is one public origin, one TLS termination and one place for the
   Origin check.

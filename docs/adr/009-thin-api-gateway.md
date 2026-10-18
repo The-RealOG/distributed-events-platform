@@ -1,13 +1,13 @@
 # ADR-009: Thin API Gateway as the single external entry point
 
-**Status:** Accepted (Phase 2)
+**Status:** Accepted
 
 ## Context
 
-The browser needs to call the platform's HTTP APIs. Today that means only the Project
-Service, but later phases add a File Service and a Realtime Service (WebSockets), and the
-platform will move to AWS behind a load balancer. If the browser knew every service's
-address, each new service would add another origin to configure, another CORS policy to keep
+The browser needs to call the platform's HTTP APIs: the Project Service, and the Realtime
+Service over WebSockets, with the platform on AWS behind a load balancer. If the browser knew
+every service's address, each new service would add another origin to configure, another CORS
+policy to keep
 consistent, and another place where correlation IDs, body limits and security headers could
 drift. Internal service addresses would also leak into client bundles.
 
@@ -43,7 +43,7 @@ Specific choices:
   body as `{"type":"Buffer",…}`.)
 - **Request IDs are per hop; correlation IDs span hops.** The gateway never forwards the
   client's `x-request-id`. Each service mints its own, and they are joined by
-  `x-correlation-id`. That same ID will be carried into Kafka events in Phase 3+.
+  `x-correlation-id`. That same ID is carried into every Kafka event the request causes.
 - **Readiness reflects the gateway only.** If the Project Service is down, the gateway still
   answers quickly with 503. Marking it unready would just make the load balancer return errors
   instead.

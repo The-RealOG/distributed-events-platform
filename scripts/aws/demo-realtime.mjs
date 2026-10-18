@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Phases 8–9 demonstrations against the deployed environment, through the public URL only
+// Realtime and attachment demonstrations against the deployed environment, through the public URL only
 // (browser path: CloudFront → ALB → gateway → realtime-service / project-service; attachment
 // bytes go straight to S3). The realtime replica restart is a real ECS redeployment.
 //   npm run aws:demo:realtime      (scripts/aws/demo-realtime.sh passes the app URL and cluster)
@@ -100,7 +100,7 @@ async function demo(name, fn) {
   }
 }
 
-console.log(`Phases 8–9 demo against ${appUrl}\n`);
+console.log(`Realtime and attachments demo against ${appUrl}\n`);
 
 await demo('realtime: B sees A’s create and move live, with A’s correlation ID', async () => {
   const p = await sharedProject();

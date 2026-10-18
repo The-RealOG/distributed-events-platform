@@ -1,6 +1,6 @@
 # ADR-001: PostgreSQL is the transactional source of truth
 
-**Status:** Accepted (Phase 1)
+**Status:** Accepted
 
 ## Context
 
@@ -14,9 +14,9 @@ All authoritative project-management state (users, workspaces, membership, proje
 columns, tasks, assignees, comments) lives in PostgreSQL and is only changed inside PostgreSQL
 transactions by the Project Service. Every other store is derived:
 
-- Kafka carries notifications of committed changes (Phase 3–4, via a transactional outbox).
-- Redis holds disposable copies of read models with finite TTLs (Phase 7).
-- WebSocket messages are hints that tell clients to reconcile (Phase 6).
+- Kafka carries notifications of committed changes (via a transactional outbox, ADR-011).
+- Redis holds disposable copies of read models with finite TTLs (ADR-015).
+- WebSocket messages are hints that tell clients to reconcile (ADR-016).
 
 Whenever a derived copy is suspect, the recovery path is to re-read PostgreSQL.
 
@@ -33,6 +33,6 @@ Whenever a derived copy is suspect, the recovery path is to re-read PostgreSQL.
 - Invariants (authorization, optimistic concurrency, referential integrity) are enforced with
   ordinary transactions and constraints, and are tested against a real PostgreSQL.
 - Anything published elsewhere must be derived from a committed transaction. Direct
-  dual-writes to Kafka are not allowed (see the outbox ADR in Phase 4).
+  dual-writes to Kafka are not allowed (see ADR-011, the transactional outbox).
 - PostgreSQL availability bounds write availability. `/ready` reports not-ready without it,
   and requests fail with 503 `DEPENDENCY_UNAVAILABLE` instead of hanging or leaking errors.

@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startService, type ServiceProcess } from './processes.js';
 
 /**
- * Phases 6 and 7 with real processes and real PostgreSQL, Kafka and Valkey:
+ * The activity projection and the board cache with real processes and real PostgreSQL, Kafka and Valkey:
  *
  *   HTTP → gateway → project-service (A) → PostgreSQL (change + outbox)
  *   outbox-publisher → Kafka → activity-service → activity_events
@@ -192,7 +192,7 @@ async function invalidatorCaughtUp() {
 
 // ---------------------------------------------------------------------------------------------
 
-describe('Phase 6: activity is an eventually consistent projection', { timeout: 180_000 }, () => {
+describe('activity is an eventually consistent projection', { timeout: 180_000 }, () => {
   it('a change succeeds at once; its activity appears later, with the request’s correlation ID, newest first', async () => {
     const p = await newProject();
     const task = await createTask(p, 'Draft', 'corr-activity-create');
@@ -281,7 +281,7 @@ describe('Phase 6: activity is an eventually consistent projection', { timeout: 
   });
 });
 
-describe('Phase 7: shared board cache with Kafka-driven invalidation', { timeout: 180_000 }, () => {
+describe('shared board cache with Kafka-driven invalidation', { timeout: 180_000 }, () => {
   it('miss → hit; the other replica hits the same entry; a change invalidates it for both; then hit again, fresh', async () => {
     const p = await newProject();
     await createTask(p, 'v1');

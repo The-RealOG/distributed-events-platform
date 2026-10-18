@@ -2,8 +2,8 @@
 
 `.github/workflows/ci.yml` runs on every pull request, on every push to `main`, and on demand.
 It needs no AWS access. Deliberate-break runs (`mutations.yml`) and AWS verification
-(`npm run aws:test`, `aws:demo`, `aws:audit`, `terraform plan`) are separate, run at phase and
-deploy checkpoints.
+(`npm run aws:test`, `aws:demo`, `aws:audit`, `terraform plan`) are separate and run
+manually, before and after deploys.
 
 ```
 plan (6 s) ──────────► integration: kafka │ system │ publisher+cache │ activity+project-service

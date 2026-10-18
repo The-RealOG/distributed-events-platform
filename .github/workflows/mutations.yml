@@ -6,8 +6,8 @@ name: Deliberate breaks
 on:
   workflow_dispatch:
     inputs:
-      phase:
-        description: 'Phase whose mutations to run (empty = all)'
+      group:
+        description: 'Group of deliberate breaks to run (empty = all): outbox, consumers, activity, cache, realtime, attachments, api'
         required: false
         default: ''
 
@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: ids
-        run: echo "ids=$(node scripts/mutations/run.mjs --list '${{ inputs.phase }}')" >> "$GITHUB_OUTPUT"
+        run: echo "ids=$(node scripts/mutations/run.mjs --list '${{ inputs.group }}')" >> "$GITHUB_OUTPUT"
 
   mutation:
     needs: list

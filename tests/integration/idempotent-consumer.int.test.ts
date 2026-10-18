@@ -31,7 +31,7 @@ import { pino } from 'pino';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 /**
- * Phase 5 (ADR-013): a logical consumer applies each event's side effects once, although Kafka
+ * Idempotent consumption (ADR-013): a logical consumer applies each event's side effects once, although Kafka
  * delivers at least once. Real PostgreSQL for the transaction/race guarantees, real Kafka for
  * redelivery and offset behaviour.
  *
@@ -342,7 +342,7 @@ describe('idempotent consumer on Kafka (real broker)', { timeout: 180_000 }, () 
     const topic = await createTopic();
     const c = consumerName();
     const event = newEvent();
-    await publish(topic, event, event); // the Phase-4 ack-before-mark duplicate: same eventId
+    await publish(topic, event, event); // the publisher's ack-before-mark duplicate: same eventId
 
     const outcomes: ConsumerOutcome[] = [];
     const consumer = await startConsumer(

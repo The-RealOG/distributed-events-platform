@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase-10 failure injections (publisher outage, ECS task stops, RDS reboot, MSK broker reboot).
+# Failure injections (publisher outage, ECS task stops, RDS reboot, MSK broker reboot).
 #   npm run aws:demo:failures [-- publisher|tasks|rds|kafka]
 source "$(dirname "$0")/lib.sh"
 require_aws_auth

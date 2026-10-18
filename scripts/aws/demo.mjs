@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Phases 6–7 demonstrations against the deployed environment, through the public URL only
+// Activity and board-cache demonstrations against the deployed environment, through the public URL only
 // (CloudFront → ALB → gateway → project-service). Workers are stopped/started by scaling their
 // ECS services; the Redis outage is a real ElastiCache node reboot. Nothing is repaired by hand.
 //   npm run aws:demo        (scripts/aws/demo.sh passes the app URL and cluster)
@@ -109,7 +109,7 @@ async function demo(name, fn) {
   }
 }
 
-console.log(`Phase 6–7 demo against ${appUrl}\n`);
+console.log(`Activity and cache demo against ${appUrl}\n`);
 
 await demo('A. activity is eventually consistent', async () => {
   const p = await newProject();

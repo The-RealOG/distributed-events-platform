@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Phase-10 failure injections against the deployed environment, all through supported AWS APIs,
+// Failure injections against the deployed environment, all through supported AWS APIs,
 // all observed through the public URL. Recovery is automatic (ECS, RDS, MSK).
 // Nothing is patched by hand.
 //   npm run aws:demo:failures [-- <only>]   only ∈ publisher|tasks|rds|kafka
@@ -210,16 +210,7 @@ await demo(
       ).taskArns[0];
       const p = prober(() => call('GET', `/tasks/${read.body.id}`, { token: f.token }), 500);
       const t0 = Date.now();
-      aws(
-        'ecs',
-        'stop-task',
-        '--cluster',
-        cluster,
-        '--task',
-        task,
-        '--reason',
-        'phase-10 failure test',
-      );
+      aws('ecs', 'stop-task', '--cluster', cluster, '--task', task, '--reason', 'failure test');
       const { ms: replaced } = await until(
         `${service} replacement running`,
         () => {

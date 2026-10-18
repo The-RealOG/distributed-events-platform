@@ -1,6 +1,6 @@
 # ADR-015: Shared board cache with Kafka-driven invalidation
 
-**Status:** Accepted (Phase 7)
+**Status:** Accepted
 
 ## Context
 
@@ -135,7 +135,7 @@ show it matters, per-process request coalescing is the first step.
   corrupt entries, writes, skipped stale writes and invalidations.
 - Invalidator `/status` exposes invalidated, ignored and failed counts.
 
-These become Prometheus metrics in Phase 10.
+These are exported as Prometheus metrics.
 
 ### Client cache vs. server cache
 

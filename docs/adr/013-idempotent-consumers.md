@@ -1,6 +1,6 @@
 # ADR-013: Idempotent Kafka consumers
 
-**Status:** Accepted (Phase 5)
+**Status:** Accepted
 
 ## Context
 
@@ -89,7 +89,7 @@ offset commit. Committing the offset first would lose events on a crash (break `
 
 The wrapper logs the consumer, `eventId`, `eventType`, `correlationId`, topic, partition, offset
 and duration, never the payload. It reports `processed` / `duplicate` / `failed` through
-`onOutcome`, ready for metrics in Phase 10. Its structural types keep `@dpp/database` free of
+`onOutcome`, which the services turn into Prometheus metrics. Its structural types keep `@dpp/database` free of
 any Kafka dependency.
 
 ## Boundaries
@@ -97,10 +97,9 @@ any Kafka dependency.
 - **Only PostgreSQL side effects are covered.** An email or an HTTP call can't join the
   transaction. Such effects need their own idempotency key (for example the `eventId` passed to
   the provider) or an outbox of their own.
-- **Malformed messages** are unchanged from Phase 3: `DomainEventConsumer` logs and skips them
-  before any handler runs, so they never produce a marker. Poison messages that fail repeatedly
-  in the handler are Phase 9 (bounded retries plus the DLQ). Until then KafkaJS retries them and
-  restarts the consumer from the committed offset.
+- **Malformed messages** are rejected by `DomainEventConsumer` before any handler runs, so they
+  never produce a marker. Poison messages that fail repeatedly in the handler get bounded
+  retries and then go to the DLQ (ADR-019).
 - **Ordering** is per partition, as in ADR-010. The marker makes processing idempotent; it does
   not reorder anything.
 

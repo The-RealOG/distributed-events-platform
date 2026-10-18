@@ -1,6 +1,6 @@
 # ADR-008: Optimistic concurrency control for tasks
 
-**Status:** Accepted (Phase 1)
+**Status:** Accepted
 
 ## Context
 
@@ -47,7 +47,7 @@ monotonically with every change to the task (future events rely on this as
 
 ## Consequences
 
-- Clients must send versions and handle 409 by refetching. The frontend (Phase 2) shows the
+- Clients must send versions and handle 409 by refetching. The frontend shows the
   conflict and reloads authoritative state instead of retrying blindly.
 - An assignment made between a user's read and their title edit will make the edit conflict.
   This is intentional: the user saved against a stale view.

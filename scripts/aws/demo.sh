@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phases 6–7 in the deployed environment: eventual activity, activity outage, cache hit/miss,
+# In the deployed environment: eventual activity, activity outage, cache hit/miss,
 # Kafka-driven invalidation, invalidator outage, Redis outage (a real node reboot).
 #   npm run aws:demo
 source "$(dirname "$0")/lib.sh"

@@ -1,6 +1,6 @@
 # ADR-014: Activity history as an asynchronous projection
 
-**Status:** Accepted (Phase 6)
+**Status:** Accepted
 
 ## Context
 
@@ -25,7 +25,7 @@ request → project-service → PostgreSQL (change + outbox) → 200
 - **No second write in the request.** Writing history synchronously would add work and failure
   modes to every mutation for data nobody reads in that request.
 - **Kafka is the propagation mechanism.** The same committed events feed any number of
-  consumers (activity now, cache invalidation in Phase 7, realtime and notifications later)
+  consumers (activity, cache invalidation and realtime)
   without the Project Service knowing about them.
 
 The cost is **eventual consistency**. After a change returns 200, `GET /tasks/:id` shows it at
@@ -46,7 +46,7 @@ activity row commit in one transaction; the offset is committed after. A duplica
 (E123, E123) produces one row.
 
 `activity_events.event_id` is also UNIQUE. That is a _projection invariant_ (one entry per
-event), not the deduplication mechanism. If code ever bypassed the Phase-5 primitive, a
+event), not the deduplication mechanism. If code ever bypassed the idempotency primitive (ADR-013), a
 duplicate would fail loudly on this constraint instead of silently doubling history.
 
 ### Structured facts, not sentences
@@ -100,4 +100,5 @@ Nothing else depends on the Activity Service's readiness.
   within Kafka retention (7 days on MSK by default).
 - A new deployment of the Activity Service (new consumer group) replays the topic from the start,
   so events published before it existed are projected too.
-- Poison messages that always fail in the handler still retry forever. The DLQ is Phase 9.
+- Poison messages that always fail in the handler are dead-lettered after bounded retries
+  (ADR-019).

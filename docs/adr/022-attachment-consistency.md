@@ -1,6 +1,6 @@
 # ADR-022: Attachment metadata and object consistency: pending → ready → deleted, and a sweep
 
-**Status:** Accepted (Phase 9)
+**Status:** Accepted
 
 ## Context
 

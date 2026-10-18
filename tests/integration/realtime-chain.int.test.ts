@@ -15,7 +15,7 @@ import { WebSocket } from 'ws';
 import { startService, type ServiceProcess } from './processes.js';
 
 /**
- * Phase 8 end to end with real processes:
+ * Realtime end to end with real processes:
  *   user A: HTTP → gateway → project-service → PostgreSQL (change + outbox)
  *   outbox-publisher → Kafka → realtime-service → gateway /api/realtime → user B's WebSocket
  */

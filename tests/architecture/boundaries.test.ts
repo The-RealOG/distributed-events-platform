@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Phase 8–9 boundaries that must not erode:
+ * Realtime and attachment boundaries that must not erode:
  * - Realtime notifications come only from committed Kafka events (ADR-016): the Project Service
  *   has no WebSocket capability at all.
  * - Attachment bytes go browser ⇄ S3 directly (ADR-021): the Project Service cannot receive a
