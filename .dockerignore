@@ -13,6 +13,8 @@
 !.env.example
 infrastructure/terraform
 docs
+.local-notes
+tests/load/results
 .DS_Store
 .idea
 .vscode
