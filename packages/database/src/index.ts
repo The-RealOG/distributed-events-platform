@@ -8,6 +8,7 @@ export {
 } from './client.js';
 export {
   isDatabaseUnavailable,
+  isQueryTimeout,
   pgErrorCode,
   PG_FOREIGN_KEY_VIOLATION,
   PG_UNIQUE_VIOLATION,

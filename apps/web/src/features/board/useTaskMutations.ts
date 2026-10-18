@@ -29,6 +29,8 @@ export function useTaskMutations(projectId: string) {
       );
     } else if (isApiError(error, 'not_found')) {
       notify('error', 'That task no longer exists. The board has been refreshed.');
+    } else if (isApiError(error, 'outcome_unknown')) {
+      notify('error', 'That took too long and may have been saved. The board has been refreshed.');
     } else if (isApiError(error, 'validation')) {
       notify('error', 'The board was out of date. It has been refreshed; try again.');
     } else {

@@ -45,11 +45,12 @@ consumer, and every read model converges to PostgreSQL, within the Kafka durabil
   safe: a client that retries `POST /tasks` after a lost response creates a second task. Updates
   and moves are protected by `expectedVersion` (409 on a stale retry). There are no idempotency
   keys.
-- **Outcome of a timed-out statement.** Pool-acquisition and connection failures, and
-  statements cancelled by the server's `statement_timeout` (which roll back), return 503: the
-  change was not applied and a retry is safe. A statement that exceeded the 15 s client-side
-  query timeout returns 500, because its outcome is unknown to the client: it may have
-  committed.
+- **Timeouts say whether a retry is safe.** Pool-acquisition and connection failures, and
+  statements cancelled by the server's `statement_timeout` (which roll back), return
+  **503 DEPENDENCY_UNAVAILABLE**: nothing was applied. When a response simply did not arrive in
+  time (the database client's query timeout, or the gateway's upstream timeout), a read still
+  returns 503, but a mutation returns **504 OUTCOME_UNKNOWN**: it may have been applied, so the
+  client must refetch before retrying.
 - **Overload.** At saturation, requests queue for project-service's 10-connection pool and fail
   after its 5 s connect timeout (503). There is no load shedding earlier.
 - **Outbox growth.** Published outbox rows are never deleted, so the table only grows. In the

@@ -16,6 +16,10 @@ describe('toApiError', () => {
     expect(toApiError(403, errorBody('FORBIDDEN', 'x')).kind).toBe('forbidden');
     expect(toApiError(404, errorBody('NOT_FOUND', 'x')).kind).toBe('not_found');
     expect(toApiError(503, errorBody('DEPENDENCY_UNAVAILABLE', 'x')).kind).toBe('unavailable');
+    expect(toApiError(504, errorBody('OUTCOME_UNKNOWN', 'may have been applied'))).toMatchObject({
+      kind: 'outcome_unknown',
+      message: 'may have been applied',
+    });
     expect(toApiError(409, errorBody('CONFLICT', 'dup')).kind).toBe('conflict');
   });
 

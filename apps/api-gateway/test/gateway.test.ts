@@ -254,10 +254,24 @@ describe('upstream failures', () => {
     const res = await app.inject({ method: 'PATCH', url: '/api/tasks/1', payload: { a: 1 } });
     const elapsed = performance.now() - started;
 
-    expect(res.statusCode).toBe(503);
-    expect(res.json()).toMatchObject({ error: { details: { reason: 'upstream_timeout' } } });
+    expect(res.statusCode).toBe(504);
+    expect(res.json()).toMatchObject({
+      error: { code: 'OUTCOME_UNKNOWN', details: { reason: 'upstream_timeout' } },
+    });
     expect(res.json().error.message).toMatch(/may or may not have been applied/);
     expect(elapsed).toBeLessThan(4_000);
+  });
+
+  it('answers a timed-out read with 503: nothing can have changed, so retrying is safe', async () => {
+    const upstream = await withUpstream(() => ({ status: 200, body: {}, delayMs: 6_000 }));
+    const { app } = await gatewayFor(upstream.url, { UPSTREAM_REQUEST_TIMEOUT_MS: '300' });
+
+    const res = await app.inject({ method: 'GET', url: '/api/tasks/1' });
+
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toMatchObject({
+      error: { code: 'DEPENDENCY_UNAVAILABLE', details: { reason: 'upstream_timeout' } },
+    });
   });
 
   it('never retries: one upstream call per request for GET 503s and timed-out mutations', async () => {

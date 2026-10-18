@@ -35,6 +35,18 @@ export function pgErrorCode(err: unknown): string | undefined {
 }
 
 /**
+ * True when node-postgres gave up waiting for a statement's response (its client-side
+ * query_timeout). Unlike a server-side statement timeout, the statement may still have run and
+ * committed, so the outcome of a mutation is unknown.
+ */
+export function isQueryTimeout(err: unknown): boolean {
+  for (let e: unknown = err, depth = 0; e instanceof Error && depth <= 5; e = e.cause, depth++) {
+    if (/^Query read timeout$/.test(e.message)) return true;
+  }
+  return false;
+}
+
+/**
  * True when the database could not be reached or could not answer in time, as opposed to the
  * query being rejected.
  * Callers map this to 503 so clients can distinguish "retry later" from "your request is wrong".

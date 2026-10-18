@@ -1,5 +1,10 @@
 import { AuthenticationError } from '@dpp/auth';
-import { PG_FOREIGN_KEY_VIOLATION, isDatabaseUnavailable, pgErrorCode } from '@dpp/database';
+import {
+  PG_FOREIGN_KEY_VIOLATION,
+  isDatabaseUnavailable,
+  isQueryTimeout,
+  pgErrorCode,
+} from '@dpp/database';
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { hasZodFastifySchemaValidationErrors } from 'fastify-type-provider-zod';
 import type { ErrorBody, ErrorCode } from '@dpp/contracts';
@@ -50,6 +55,11 @@ function send(reply: FastifyReply, request: FastifyRequest, err: AppError) {
  * Maps every thrown error to the public error model. Raw database/driver errors and stack
  * traces are logged but never returned.
  */
+const OUTCOME_UNKNOWN_MESSAGE =
+  'The request timed out. The change may or may not have been applied; refresh before retrying.';
+
+const isSafeMethod = (method: string) => method === 'GET' || method === 'HEAD';
+
 export function registerErrorHandling(app: FastifyInstance): void {
   app.setNotFoundHandler((request, reply) => send(reply, request, notFound('Route')));
 
@@ -85,6 +95,17 @@ export function registerErrorHandling(app: FastifyInstance): void {
         reply,
         request,
         new AppError(503, 'DEPENDENCY_UNAVAILABLE', 'Service temporarily unavailable'),
+      );
+    }
+    if (isQueryTimeout(err)) {
+      request.log.error({ err }, 'database response timed out');
+      // A read can simply be retried; a mutation may have committed before the client gave up.
+      return send(
+        reply,
+        request,
+        isSafeMethod(request.method)
+          ? new AppError(503, 'DEPENDENCY_UNAVAILABLE', 'Service temporarily unavailable')
+          : new AppError(504, 'OUTCOME_UNKNOWN', OUTCOME_UNKNOWN_MESSAGE),
       );
     }
     if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {

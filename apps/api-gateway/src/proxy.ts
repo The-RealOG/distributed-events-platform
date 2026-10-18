@@ -136,12 +136,15 @@ export async function registerProjectServiceProxy(
             },
             'upstream request failed',
           );
+          // A timed-out mutation may still have been applied upstream; a read never changes state.
+          const outcomeUnknown =
+            reason === 'upstream_timeout' && request.method !== 'GET' && request.method !== 'HEAD';
           void sendError(
             request,
             reply,
-            503,
-            'DEPENDENCY_UNAVAILABLE',
-            reason === 'upstream_timeout'
+            outcomeUnknown ? 504 : 503,
+            outcomeUnknown ? 'OUTCOME_UNKNOWN' : 'DEPENDENCY_UNAVAILABLE',
+            outcomeUnknown
               ? 'The service did not respond in time. The change may or may not have been applied; refresh before retrying.'
               : 'Service temporarily unavailable',
             { reason },

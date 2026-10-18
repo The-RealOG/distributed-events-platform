@@ -106,6 +106,12 @@ const PS_UNIT = {
   config: 'vitest.config.ts',
   files: ['src/config.test.ts'],
 };
+const PS_ERRORS = 'apps/project-service/src/http/errors.ts';
+const PS_ERRORS_UNIT = {
+  cwd: 'apps/project-service',
+  config: 'vitest.config.ts',
+  files: ['src/http/errors.test.ts'],
+};
 const DB_UNIT = {
   cwd: 'packages/database',
   config: 'vitest.config.ts',
@@ -1249,7 +1255,7 @@ export const mutations = [
     phase: 10,
     title: 'no mutation: database error classification passes',
     edits: [],
-    tests: [DB_UNIT, PS_UNIT],
+    tests: [DB_UNIT, PS_UNIT, PS_ERRORS_UNIT],
     expect: 'pass',
   },
   {
@@ -1286,5 +1292,20 @@ export const mutations = [
       'a statement cancelled by statement_timeout (rolled back, safe to retry) is answered 500',
     edits: [{ file: DB_ERRORS, find: "  '57014',\n", replace: '' }],
     tests: [{ ...DB_UNIT, name: 'statement timeout' }],
+  },
+  {
+    id: 'p10-04-timed-out-mutation-reported-as-safe-to-retry',
+    phase: 10,
+    title:
+      'a mutation whose database response timed out is answered 503 (retry is safe) instead of 504 OUTCOME_UNKNOWN',
+    edits: [
+      {
+        file: PS_ERRORS,
+        find: "          : new AppError(504, 'OUTCOME_UNKNOWN', OUTCOME_UNKNOWN_MESSAGE),",
+        replace:
+          "          : new AppError(503, 'DEPENDENCY_UNAVAILABLE', OUTCOME_UNKNOWN_MESSAGE),",
+      },
+    ],
+    tests: [{ ...PS_ERRORS_UNIT, name: 'timed-out mutation' }],
   },
 ];

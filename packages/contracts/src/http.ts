@@ -19,6 +19,8 @@ export const errorCodeSchema = z.enum([
   'UNSUPPORTED_MEDIA_TYPE',
   'UPLOAD_INCOMPLETE',
   'DEPENDENCY_UNAVAILABLE',
+  // A timeout on a mutation whose outcome is unknown: it may have been applied. Refetch first.
+  'OUTCOME_UNKNOWN',
   'INTERNAL',
 ]);
 export type ErrorCode = z.infer<typeof errorCodeSchema>;

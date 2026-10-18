@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { isDatabaseUnavailable, pgErrorCode, PG_UNIQUE_VIOLATION } from './errors.js';
+import {
+  isDatabaseUnavailable,
+  isQueryTimeout,
+  pgErrorCode,
+  PG_UNIQUE_VIOLATION,
+} from './errors.js';
 
 const withCode = (code: string) => Object.assign(new Error('x'), { code });
 
@@ -53,5 +58,12 @@ describe('database error classification', () => {
     expect(isDatabaseUnavailable(withCode(PG_UNIQUE_VIOLATION))).toBe(false);
     expect(isDatabaseUnavailable(new Error('syntax error'))).toBe(false);
     expect(isDatabaseUnavailable(undefined)).toBe(false);
+  });
+
+  it('recognises the client-side query timeout, whose outcome is unknown, and nothing else', () => {
+    const wrapped = new Error('Failed query: commit', { cause: new Error('Query read timeout') });
+    expect(isQueryTimeout(wrapped)).toBe(true);
+    expect(isQueryTimeout(new Error('x', { cause: withCode('57014') }))).toBe(false);
+    expect(isQueryTimeout(new Error('timeout exceeded when trying to connect'))).toBe(false);
   });
 });
