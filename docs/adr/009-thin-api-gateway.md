@@ -35,9 +35,12 @@ Specific choices:
   a limit on attempts.
 - **Timeouts are explicit.** Connect: 2 s. Response headers/body: 15 s, deliberately longer
   than the Project Service's 10 s statement timeout, so the service's own 503 arrives first.
-  A gateway timeout on a mutation returns
-  503 with `reason: upstream_timeout` and a message that the outcome is unknown, telling the
-  client to refetch rather than resubmit.
+  Only a request that was never sent (connection refused, DNS failure, connect timeout) is a
+  confirmed failure: 503 `DEPENDENCY_UNAVAILABLE`, `reason: upstream_unreachable`. Once a
+  mutation may have reached the Project Service (response timeout, or the connection dropped),
+  the gateway returns 504 `OUTCOME_UNKNOWN` (`reason: upstream_timeout` or
+  `upstream_connection_lost`), telling the client to refetch rather than resubmit. Reads get 503
+  in every case.
 - **Bodies are forwarded as bytes.** The gateway enforces size but does not parse JSON. The
   owning service validates. (A test pins this: reply-from would otherwise re-serialize a Buffer
   body as `{"type":"Buffer",…}`.)

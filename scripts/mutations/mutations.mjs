@@ -1360,4 +1360,18 @@ export const mutations = [
     ],
     tests: [{ ...GATEWAY_UNIT, name: 'limits each user separately' }],
   },
+  {
+    id: 'api-07-lost-connection-reported-as-safe-to-retry',
+    group: 'api',
+    title:
+      'a mutation whose upstream connection dropped after sending is answered 503 (retry is safe) instead of 504 OUTCOME_UNKNOWN',
+    edits: [
+      {
+        file: 'apps/api-gateway/src/proxy.ts',
+        find: "            reason !== 'upstream_unreachable' &&",
+        replace: "            reason === 'upstream_timeout' &&",
+      },
+    ],
+    tests: [{ ...GATEWAY_UNIT, name: 'connection dropped after sending' }],
+  },
 ];

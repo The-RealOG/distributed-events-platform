@@ -128,12 +128,13 @@ the logs. The gateway line and the Project Service line share it, and each has i
 
 ### Failure behaviour through the gateway
 
-| Situation                   | Browser receives                                                       | Bounded by                 |
-| --------------------------- | ---------------------------------------------------------------------- | -------------------------- |
-| Project Service unreachable | 503 `DEPENDENCY_UNAVAILABLE`, `details.reason: upstream_unreachable`   | connect timeout (2 s)      |
-| Project Service too slow    | 503, `reason: upstream_timeout`, "may or may not have been applied"    | response timeout (15 s)    |
-| PostgreSQL down             | the Project Service's own 503 `DEPENDENCY_UNAVAILABLE`, passed through | pool connect timeout (5 s) |
-| Any upstream 4xx/5xx        | passed through unchanged (already in the public error shape)           | n/a                        |
+| Situation                   | Browser receives                                                               | Bounded by                 |
+| --------------------------- | ------------------------------------------------------------------------------ | -------------------------- |
+| Project Service unreachable | 503 `DEPENDENCY_UNAVAILABLE`, `details.reason: upstream_unreachable`           | connect timeout (2 s)      |
+| Project Service too slow    | mutation: 504 `OUTCOME_UNKNOWN`, `reason: upstream_timeout`; read: 503         | response timeout (15 s)    |
+| Connection dropped mid-call | mutation: 504 `OUTCOME_UNKNOWN`, `reason: upstream_connection_lost`; read: 503 | n/a                        |
+| PostgreSQL down             | the Project Service's own 503 `DEPENDENCY_UNAVAILABLE`, passed through         | pool connect timeout (5 s) |
+| Any upstream 4xx/5xx        | passed through unchanged (already in the public error shape)                   | n/a                        |
 
 No gateway retries, for any method. Raw socket errors and internal addresses appear only in
 gateway logs (`upstream request failed`, with `reason` and `elapsedMs`).

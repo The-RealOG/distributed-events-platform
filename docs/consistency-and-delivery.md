@@ -50,10 +50,12 @@ consumer, and every read model converges to PostgreSQL, within the Kafka durabil
   `expectedVersion` instead.
 - **Timeouts say whether a retry is safe.** Pool-acquisition and connection failures, and
   statements cancelled by the server's `statement_timeout` (which roll back), return
-  **503 DEPENDENCY_UNAVAILABLE**: nothing was applied. When a response simply did not arrive in
-  time (the database client's query timeout, or the gateway's upstream timeout), a read still
-  returns 503, but a mutation returns **504 OUTCOME_UNKNOWN**: it may have been applied, so the
-  client must refetch before retrying.
+  **503 DEPENDENCY_UNAVAILABLE**: nothing was applied. So does the gateway when it could not
+  connect to the Project Service at all. When a response simply did not arrive (the database
+  client's query timeout, the gateway's upstream timeout, or an upstream connection that dropped
+  after the request was sent), a read still returns 503, but a mutation returns
+  **504 OUTCOME_UNKNOWN**: it may have been applied, so the client must refetch before
+  retrying.
 - **Overload.** At saturation, requests queue for project-service's 10-connection pool and fail
   after its 5 s connect timeout (503). There is no load shedding earlier.
 - **Outbox retention.** The outbox publisher deletes events Kafka acknowledged more than

@@ -1,3 +1,4 @@
+import { createServer as createHttpServer } from 'node:http';
 import { createServer } from 'node:net';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -271,6 +272,39 @@ describe('upstream failures', () => {
     expect(res.statusCode).toBe(503);
     expect(res.json()).toMatchObject({
       error: { code: 'DEPENDENCY_UNAVAILABLE', details: { reason: 'upstream_timeout' } },
+    });
+  });
+
+  it('answers a mutation whose connection dropped after sending with 504 OUTCOME_UNKNOWN', async () => {
+    // The upstream receives the request and then drops the connection: it may have committed.
+    const dropping = createHttpServer((req) => req.socket.destroy());
+    await new Promise<void>((resolve) => dropping.listen(0, '127.0.0.1', resolve));
+    closers.push(() => new Promise((resolve) => dropping.close(resolve)));
+    const { port } = dropping.address() as { port: number };
+    const { app } = await gatewayFor(`http://127.0.0.1:${port}`);
+
+    const mutation = await app.inject({ method: 'POST', url: '/api/tasks', payload: { t: 1 } });
+    expect(mutation.statusCode).toBe(504);
+    expect(mutation.json()).toMatchObject({
+      error: { code: 'OUTCOME_UNKNOWN', details: { reason: 'upstream_connection_lost' } },
+    });
+
+    const read = await app.inject({ method: 'GET', url: '/api/tasks/1' });
+    expect(read.statusCode).toBe(503);
+    expect(read.json()).toMatchObject({
+      error: { code: 'DEPENDENCY_UNAVAILABLE', details: { reason: 'upstream_connection_lost' } },
+    });
+  });
+
+  it('answers a mutation that was never sent (connection refused) with 503: retrying is safe', async () => {
+    const port = await unusedPort();
+    const { app } = await gatewayFor(`http://127.0.0.1:${port}`);
+
+    const res = await app.inject({ method: 'POST', url: '/api/tasks', payload: { t: 1 } });
+
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toMatchObject({
+      error: { code: 'DEPENDENCY_UNAVAILABLE', details: { reason: 'upstream_unreachable' } },
     });
   });
 
