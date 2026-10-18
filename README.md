@@ -1,11 +1,21 @@
 # Distributed Project Management Platform
 
-A collaborative project-management application (workspaces, projects, task boards, comments,
-assignees and file attachments) built as a set of TypeScript services around an event-driven
-core. Changes are committed to PostgreSQL and published to Kafka through a transactional outbox.
-Independent consumers build an activity feed, keep a shared board cache fresh and push realtime
-updates to browsers over WebSockets. The system runs locally with Docker Compose and on AWS (ECS
-Fargate, RDS, MSK, ElastiCache, S3, CloudFront), provisioned with Terraform.
+A collaborative project-management application, built as TypeScript services around an
+event-driven core. Every change is committed to PostgreSQL together with a domain event. A
+publisher delivers those events to Kafka, and independent consumers keep an activity feed, a shared
+board cache and live browser updates in step with the database. The system runs locally with
+Docker Compose and on AWS (ECS Fargate, RDS, MSK, ElastiCache, S3), provisioned with Terraform.
+
+## Features
+
+- **Workspaces** with owner, admin and member roles; admins create projects.
+- **Boards:** each project has a board with columns and ordered tasks. Tasks can be moved by drag
+  and drop or from the keyboard, and filtered by text or assignee.
+- **Tasks** with descriptions, assignees and comments. Concurrent edits are detected with versions:
+  a stale save is rejected with 409 and the client shows the latest state.
+- **Activity feed** per project, built asynchronously from domain events.
+- **Realtime updates:** other users' changes appear without a reload.
+- **Attachments:** files are uploaded to and downloaded from S3 directly by the browser.
 
 ## Architecture
 
@@ -48,91 +58,53 @@ flowchart LR
   inv -- invalidate --> redis
 ```
 
-- **Synchronous path:** the browser talks only to the API Gateway. The gateway forwards REST
-  calls to the Project Service and relays WebSockets to the Realtime Service. The Project
-  Service is the only writer of domain state.
-- **Asynchronous path:** the Outbox Publisher delivers committed events to Kafka, keyed by
-  project for per-project ordering. Each consumer has its own consumer group and works
-  independently, so a stopped consumer delays only its own projection.
-- **Attachments:** bytes go directly between the browser and S3 with presigned URLs; the API
-  only authorizes and records metadata.
+- **Write path:** the browser talks only to the API Gateway, which forwards REST calls to the
+  Project Service and relays WebSockets to the Realtime Service. The Project Service is the only
+  writer of domain state. It never calls Kafka: a request succeeds when its transaction commits.
+- **Asynchronous path:** the Outbox Publisher sends committed events to Kafka, keyed by project so
+  each project's events stay in order. Each consumer has its own consumer group, so a stopped
+  consumer delays only its own work.
+- **Attachments:** the API authorizes the upload, signs a short-lived URL and records metadata. The
+  bytes never pass through the API.
 
-More detail: [docs/architecture.md](docs/architecture.md),
-[docs/consistency-and-delivery.md](docs/consistency-and-delivery.md) and the decision records
-in [docs/adr/](docs/adr/).
+More detail is in [docs/architecture.md](docs/architecture.md),
+[docs/consistency-and-delivery.md](docs/consistency-and-delivery.md) and the decision records in
+[docs/adr/](docs/adr/).
 
-## Tech stack
+## Technology Stack
 
-| Area           | Technology                                                                                |
-| -------------- | ----------------------------------------------------------------------------------------- |
-| Frontend       | React 19, Vite, React Router, TanStack Query                                              |
-| Backend        | Node.js 24, TypeScript, Fastify, Zod (validated config and contracts), Pino               |
-| Database       | PostgreSQL 17, Drizzle ORM, SQL migrations                                                |
-| Messaging      | Apache Kafka (KafkaJS); Amazon MSK on AWS                                                 |
-| Caching        | Valkey (Redis-compatible), ioredis; Amazon ElastiCache on AWS                             |
-| Realtime       | WebSockets (`ws`), relayed through the gateway                                            |
-| Object storage | Amazon S3 (presigned POST/GET); LocalStack locally                                        |
-| Observability  | Prometheus metrics, Grafana dashboards (provisioned from the repository), correlation IDs |
-| Infrastructure | Docker, Docker Compose, Terraform (ECS Fargate, RDS, MSK, ElastiCache, ALB, CloudFront)   |
-| Testing        | Vitest, Testcontainers, Playwright, k6                                                    |
-| CI/CD          | GitHub Actions (OIDC to AWS, no long-lived keys), Turborepo                               |
+| Area           | Technology                                                                      |
+| -------------- | ------------------------------------------------------------------------------- |
+| Frontend       | React 19, Vite, React Router, TanStack Query                                    |
+| Backend        | Node.js 24, TypeScript, Fastify, Zod, Pino                                      |
+| Database       | PostgreSQL 17, Drizzle ORM, SQL migrations                                      |
+| Messaging      | Apache Kafka (KafkaJS); Amazon MSK on AWS                                       |
+| Cache          | Valkey (Redis-compatible), ioredis; Amazon ElastiCache on AWS                   |
+| Realtime       | WebSockets (`ws`), relayed through the gateway                                  |
+| Object storage | Amazon S3 with presigned POST/GET; LocalStack locally                           |
+| Observability  | Prometheus, Grafana (provisioned from the repository), correlation IDs          |
+| Infrastructure | Docker Compose, Terraform (ECS Fargate, RDS, MSK, ElastiCache, ALB, CloudFront) |
+| Testing        | Vitest, Testcontainers, Playwright, k6                                          |
+| CI/CD          | GitHub Actions (OIDC to AWS, no stored keys), Turborepo                         |
 
-## Repository layout
+## Prerequisites
 
-```text
-apps/            web, api-gateway, project-service, outbox-publisher, activity-service,
-                 cache-invalidator, realtime-service, kafka-tools
-packages/        auth, cache, config, contracts, database, kafka, observability, runtime,
-                 storage, test-utils
-infrastructure/  docker/ (Dockerfiles), terraform/ (AWS), observability/ (Prometheus, Grafana)
-scripts/         aws/ (deploy and operations), load/ (load-test runner), kafka/, outbox/,
-                 mutations/ (deliberate-break checks), ci/
-tests/           integration/, architecture/, e2e/ (Playwright), stack/, load/ (k6)
-docs/            architecture, consistency model, AWS and CI notes, ADRs
-```
+- Node.js 22.12 or later (`.nvmrc` pins 24) and npm 10 or later
+- Docker with Compose v2, for the local stack and the integration tests
 
-## Getting started
-
-### Prerequisites
-
-- Node.js ≥ 22.12 (`.nvmrc` pins 24) and npm ≥ 10
-- Docker with Compose v2
-
-### 1. Configure the environment
+## Local Development
 
 ```bash
-cp .env.example .env
+cp .env.example .env                   # local-only defaults; every variable is documented there
 cp apps/web/.env.example apps/web/.env
-```
-
-The defaults are for local development only. `.env.example` documents every variable;
-services validate their configuration at startup and exit with the names of any invalid
-variables.
-
-### 2. Install dependencies
-
-```bash
 npm install
+docker compose up --build              # all infrastructure and services
 ```
 
-### 3. Start the stack
-
-```bash
-docker compose up --build
-```
-
-This builds the service images and starts PostgreSQL, Kafka, Valkey, LocalStack (S3),
-Prometheus, Grafana and all services. The `migrate` service applies the database migrations
-and `kafka-init` creates the topics before the services that need them start.
-
-To apply migrations yourself (for example, when running services outside Docker):
-
-```bash
-npm run build -w @dpp/database
-npm run db:migrate -w @dpp/database   # uses DATABASE_URL from .env
-```
-
-### 4. Open the application
+Compose starts PostgreSQL, Kafka, Valkey, LocalStack (S3), Prometheus and Grafana, runs the
+database migrations (`migrate`) and creates the Kafka topics (`kafka-init`) and the S3 bucket
+(`s3-init`) before the services that need them. Services validate their configuration at startup
+and exit with the names of any invalid variables.
 
 | URL                   | What                                                             |
 | --------------------- | ---------------------------------------------------------------- |
@@ -142,94 +114,139 @@ npm run db:migrate -w @dpp/database   # uses DATABASE_URL from .env
 | http://localhost:9090 | Prometheus                                                       |
 
 `node scripts/smoke.mjs` runs an end-to-end check against the running stack.
+`docker compose down -v` stops it and deletes the data volumes.
 
-### Fast local development (without the service containers)
+To work on the request path without the service containers, start only the database and run the
+services from source (Kafka is not needed to serve requests; events wait in the outbox):
 
 ```bash
 docker compose up -d postgres migrate
 npm run build
 npm run dev -w @dpp/project-service   # :3001, reads ../../.env
 npm run dev -w @dpp/api-gateway       # :3000
-npm run dev -w @dpp/web               # :5173, calls VITE_API_BASE_URL
+npm run dev -w @dpp/web               # :5173
 ```
 
-### Stop
-
-```bash
-docker compose down      # stop
-docker compose down -v   # stop and delete the data volumes
-```
+To apply migrations to another database: `npm run build -w @dpp/database`, then
+`npm run db:migrate -w @dpp/database` (uses `DATABASE_URL`).
 
 ## Testing
 
 ```bash
-npm run test               # unit tests (no external dependencies)
-npm run test:integration   # integration tests against real PostgreSQL, Kafka, Redis and S3
-                           # (LocalStack) started with Testcontainers; needs Docker
+npm run check              # format, lint, typecheck, unit tests and build (no Docker needed)
+npm run test:integration   # real PostgreSQL, Kafka, Valkey and LocalStack via Testcontainers
 npm run test:e2e           # Playwright against the running Compose stack
-                           # (first time: npx playwright install chromium; CI: e2e.yml, nightly)
-npm run test:stack         # tests that drive the Compose stack (e.g. a Kafka outage)
-npm run check              # format, lint, typecheck, unit tests and build, as in CI
+                           # (first time: npx playwright install chromium)
+npm run test:stack         # tests that drive the Compose stack, e.g. a Kafka outage
 ```
 
-- **Unit tests** cover domain logic, contracts, configuration and the React app.
+- **Unit tests** cover domain rules, contracts, configuration and the React app.
 - **Integration tests** run each service and the cross-service chains (gateway → service →
-  database → outbox → Kafka → consumers) against real infrastructure, including failure
-  cases such as a database or broker outage, a failed commit and poison messages.
-- **Architecture tests** enforce boundaries, for example that the request path never depends
-  on Kafka.
-- **Deliberate-break checks** apply a one-line defect to a critical guard and require the
-  named tests to fail (`scripts/mutations/`, run in CI through
-  `.github/workflows/mutations.yml`).
-- **Load tests** are k6 scripts in `tests/load/`. `scripts/load/run.sh` runs them from GitHub
-  Actions against the AWS environment and collects metrics alongside the results.
+  PostgreSQL → outbox → Kafka → consumers) against real infrastructure, including database and
+  broker outages, crashes between steps, concurrent duplicates and poison messages.
+- **Architecture tests** (`tests/architecture/`) enforce boundaries, for example that nothing on
+  the request path depends on Kafka.
+- **Deliberate breaks** (`scripts/mutations/`) apply a one-line defect to a critical guard and
+  require the named tests to fail. They run in GitHub Actions through `mutations.yml`, for one
+  group (`outbox`, `consumers`, `activity`, `cache`, `realtime`, `attachments`, `api`) or all.
 
-CI (`.github/workflows/ci.yml`) runs on every push to `main` and on pull requests: static
-checks, `npm audit`, gitleaks secret scanning, unit tests and sharded integration suites. See
-[docs/ci.md](docs/ci.md).
+In GitHub Actions, `ci.yml` runs static checks, `npm audit`, gitleaks, unit tests and the
+integration suites (sharded) on every push to `main` and on pull requests. `e2e.yml` builds the
+Compose stack and runs Playwright nightly and on demand. See [docs/ci.md](docs/ci.md).
 
-## Deployment
+## AWS Deployment
 
-The AWS environment is defined in `infrastructure/terraform` and operated with `npm run aws:*`
-scripts. Images are built by GitHub Actions and deployed through OIDC; nothing in the
-repository holds AWS credentials. The deploy role trusts only this repository's `main` branch.
+`infrastructure/terraform` defines a development environment: ECS Fargate services behind an ALB
+and CloudFront, RDS PostgreSQL, MSK, ElastiCache and S3. GitHub Actions builds the images and
+deploys through OIDC; the deploy role trusts only this repository's `main` branch, and the
+repository holds no AWS credentials. Deploys are manual:
 
 ```bash
-npm run aws:rebuild   # create the whole environment, build and deploy main, verify (~45 min)
+npm run aws:rebuild   # create the environment, build and deploy main, verify (about 45 min)
 npm run aws:deploy    # build and roll out the current main commit, migrate, smoke-test
 npm run aws:status    # what is running and which commit is deployed
-npm run aws:audit     # read-only security and configuration audit
 npm run aws:destroy   # tear everything down (asks for confirmation)
 ```
 
-The environment bills while it exists. Prerequisites, the one required local setting (a
-budget-alert email in an untracked `local.auto.tfvars`) and day-to-day operations are in
+The environment bills while it exists. Setup and operations are in
 [docs/aws-development.md](docs/aws-development.md).
 
-## Design decisions
+## Project Structure
 
-PostgreSQL is the single source of truth, and every command runs in one transaction with
-optimistic concurrency (a stale `expectedVersion` returns 409). Each change writes its domain
-event in the same transaction through a **transactional outbox**, so an event can never
-disagree with committed state, and a separate publisher delivers events to Kafka **at least
-once**. Because duplicates are expected, consumers are **idempotent**: each records the
-processed event ID in the same transaction as its side effect. Create requests accept an
-`Idempotency-Key`, so a client can retry them safely. Redis is a **disposable
-cache** that is never written by the request path and is invalidated from Kafka events;
-losing it only costs speed. Realtime WebSocket messages are **notifications, not state**: the
-client refetches from the API, so a missed message never leaves it permanently stale. The
-reasoning behind each choice is recorded in [docs/adr/](docs/adr/).
+```text
+apps/
+  web/                 React SPA
+  api-gateway/         routing, CORS, rate limiting, timeouts, WebSocket relay
+  project-service/     the only writer of domain state (workspaces, projects, tasks, attachments)
+  outbox-publisher/    outbox → Kafka
+  activity-service/    Kafka → activity feed
+  cache-invalidator/   Kafka → board cache invalidation
+  realtime-service/    Kafka → WebSocket notifications
+  kafka-tools/         topic, DLQ inspection and replay CLI
+packages/              shared code: auth, cache, config, contracts (events and HTTP), database
+                       (schema, migrations, outbox, consumer idempotency), kafka, observability,
+                       runtime, storage, test-utils
+infrastructure/        docker/ (Dockerfiles), terraform/ (AWS), observability/ (Prometheus, Grafana)
+scripts/               aws/ (deploy and operations), mutations/ (deliberate breaks), load/, outbox/
+tests/                 cross-service integration, architecture, e2e (Playwright), stack, load (k6)
+docs/                  architecture, consistency model, AWS and CI notes, ADRs
+```
+
+### Following a change through the system
+
+| Step                                   | Where                                                                                                                                                    |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| HTTP route and validation              | `apps/project-service/src/modules/tasks/routes.ts`                                                                                                       |
+| Transaction, authorization, outbox row | `apps/project-service/src/modules/tasks/service.ts` (`create`), `insertOutboxEvent` in `packages/database/src/outbox.ts`                                 |
+| Retry-safe creates (`Idempotency-Key`) | `apps/project-service/src/http/idempotency.ts`                                                                                                           |
+| Claiming and publishing outbox rows    | `claimOutboxBatch` in `packages/database/src/outbox.ts`, `apps/outbox-publisher/src/publisher.ts`                                                        |
+| Kafka consumption, retries and DLQ     | `packages/kafka/src/consumer.ts`                                                                                                                         |
+| Consumer idempotency                   | `processEventOnce` in `packages/database/src/idempotency.ts`                                                                                             |
+| Board cache and invalidation           | `packages/cache/src/shared-cache.ts`, `apps/cache-invalidator/src/worker.ts`, `getBoardCached` in `apps/project-service/src/modules/projects/service.ts` |
+| WebSocket delivery                     | `apps/realtime-service/src/app.ts` (auth, subscriptions), `apps/realtime-service/src/hub.ts`                                                             |
+| Browser reconciliation                 | `apps/web/src/lib/realtime/connection.ts`, `apps/web/src/lib/realtime/useProjectRealtime.ts`                                                             |
+| Attachment upload and finalization     | `apps/project-service/src/modules/attachments/service.ts`, `packages/storage/src/object-storage.ts`                                                      |
+| Gateway proxying and failure mapping   | `apps/api-gateway/src/proxy.ts`, `apps/api-gateway/src/app.ts`                                                                                           |
+
+## Design Considerations
+
+- **Transactional outbox.** A change and the event describing it are written in one PostgreSQL
+  transaction, so an event can never disagree with committed state, and writes succeed while
+  Kafka is down. The publisher marks an event published only after Kafka acknowledges it.
+- **At-least-once delivery.** A crash between the acknowledgement and the marker resends the same
+  event (same `eventId`), and consumers can be redelivered a message after a crash or rebalance.
+  Nothing claims exactly-once.
+- **Idempotency.** Consumers record each processed `eventId` in the same transaction as their side
+  effect, so duplicates have no effect. On the HTTP side, creates accept an `Idempotency-Key`;
+  updates use `expectedVersion`. When the outcome of a write is unknown (a timeout or a dropped
+  connection after the request was sent), the API answers 504 `OUTCOME_UNKNOWN` rather than
+  claiming it failed.
+- **Caching.** Redis holds a disposable copy of each board. Authorization runs before the cache is
+  read, Redis failures fall back to PostgreSQL, invalidation is driven by Kafka events, and a
+  generation counter stops a slow reader from writing back a stale board.
+- **Realtime reconciliation.** WebSocket messages are notifications, not state. The browser
+  refetches from the API when notified and after every (re)connect, so a missed message leaves it
+  briefly stale, never wrong.
+
+The reasoning behind each choice is in [docs/adr/](docs/adr/).
 
 ## Limitations
 
-- **Kafka favours durability over availability.** MSK runs `min.insync.replicas=2`, so a broker
-  outage pauses event publication (events wait in the outbox) instead of risking acknowledged
-  events. This is configured in Terraform but not yet re-verified on AWS.
-- **Rate limits are per gateway task.** Each user is limited (600 requests/min by default), but
-  the counters are in memory, so the effective limit grows with the number of gateway tasks.
-- **Development-sized AWS environment.** It runs one task per service, single-AZ RDS on a
-  burstable instance class, and a passwordless development login. The login is refused at
-  startup unless `DEPLOYMENT_ENVIRONMENT` is a non-production value.
+- **AWS verification is not current.** The AWS environment was last deployed and tested before
+  these changes: outbox retention, `Idempotency-Key` support, gateway rate limiting, the
+  `OUTCOME_UNKNOWN` handling of dropped connections, the attachment sweep fix and
+  `min.insync.replicas=2`. They are covered by CI, not by an AWS run.
+- **Kafka favours durability over availability.** MSK runs `min.insync.replicas=2` with two
+  brokers, so losing a broker pauses publication (events wait in the outbox) rather than risking
+  acknowledged events.
+- **Rate limits are per gateway task and per token.** Counters are in memory, so N gateway tasks
+  allow up to N × the limit. The gateway does not verify tokens, so a client that invents a new
+  token for each request is not limited (the Project Service still rejects those requests).
+- **Realtime access is checked at subscribe time.** A user removed from a project keeps receiving
+  its notifications (IDs only) until the connection closes; refetches are authorized.
+- **Development-sized AWS environment:** one task per service, single-AZ RDS on a burstable
+  instance class, and a passwordless development login that is refused unless
+  `DEPLOYMENT_ENVIRONMENT` is a non-production value.
 
 See [docs/consistency-and-delivery.md](docs/consistency-and-delivery.md) for the precise
 guarantees and their limits.
