@@ -139,7 +139,12 @@ export class AttachmentService {
       .set({ status: 'ready', sizeBytes: head.sizeBytes, readyAt: sql`now()` })
       .where(and(eq(attachments.id, row.id), eq(attachments.status, 'pending')))
       .returning();
-    return toDto(ready ?? { ...row, status: 'ready', sizeBytes: head.sizeBytes });
+    if (ready) return toDto(ready);
+    // No longer pending: a concurrent finalization won (ready), or the sweep abandoned the
+    // upload after the HEAD above (deleted). Report the row's state, never an assumed one.
+    const [current] = await this.db.select().from(attachments).where(eq(attachments.id, row.id));
+    if (current?.status === 'ready') return toDto(current);
+    throw notFound('Attachment');
   }
 
   async list(principal: Principal, taskId: string): Promise<AttachmentDto[]> {
@@ -196,8 +201,8 @@ export class AttachmentService {
 
   /**
    * Converges metadata and objects (run periodically; one replica at a time via an advisory
-   * lock). Abandoned pending uploads: delete the object if any, mark deleted. Deleted rows whose
-   * object delete failed: retry. Returns how many rows were settled.
+   * lock). Abandoned pending uploads: mark deleted, then delete the object if any. Deleted rows
+   * whose object delete failed: retry. Returns how many rows were settled.
    */
   async sweep(limit = 100): Promise<number> {
     const due = await this.db.execute<{ id: string; object_key: string; status: string }>(sql`
@@ -209,15 +214,22 @@ export class AttachmentService {
     `);
     let settled = 0;
     for (const row of due.rows) {
+      if (row.status === 'pending') {
+        // Abandon the upload before touching its object. The conditional update decides a race
+        // with complete(): whichever changes the status first wins, and the other sees it.
+        const abandoned = await this.db.execute(sql`
+          UPDATE attachments SET status = 'deleted', deleted_at = now()
+          WHERE id = ${row.id} AND status = 'pending'
+        `);
+        if (abandoned.rowCount === 0) continue; // finalized meanwhile: keep it
+      }
       try {
         await this.storage.delete(row.object_key);
       } catch {
-        continue; // storage still down: next sweep
+        continue; // storage still down: the row is now deleted, so the next sweep retries
       }
       await this.db.execute(sql`
-        UPDATE attachments
-        SET status = 'deleted', deleted_at = coalesce(deleted_at, now()), object_deleted_at = now()
-        WHERE id = ${row.id}
+        UPDATE attachments SET object_deleted_at = now() WHERE id = ${row.id}
       `);
       settled++;
     }

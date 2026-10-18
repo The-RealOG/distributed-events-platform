@@ -1258,6 +1258,35 @@ export const mutations = [
     tests: [STORAGE_UNIT, { ...ATT_INT, name: 'upload → finalize' }],
   },
   {
+    id: 'attachments-13-finalize-assumes-ready',
+    group: 'attachments',
+    title:
+      'finalization reports ready although its conditional update matched nothing (the sweep had abandoned the upload)',
+    edits: [
+      {
+        file: ATT_SERVICE,
+        find: '    if (ready) return toDto(ready);',
+        replace:
+          "    return toDto(ready ?? { ...row, status: 'ready', sizeBytes: head.sizeBytes });",
+      },
+    ],
+    tests: [{ ...ATT_INT, name: 'during its finalization' }],
+  },
+  {
+    id: 'attachments-14-sweep-deletes-before-claiming',
+    group: 'attachments',
+    title:
+      'the sweep deletes an abandoned upload’s object without first claiming the row (a concurrent finalization reports ready)',
+    edits: [
+      {
+        file: ATT_SERVICE,
+        find: "      if (row.status === 'pending') {",
+        replace: '      if (false) {',
+      },
+    ],
+    tests: [{ ...ATT_INT, name: 'during the sweep' }],
+  },
+  {
     id: 'api-baseline',
     group: 'api',
     title: 'no mutation: database error classification passes',
