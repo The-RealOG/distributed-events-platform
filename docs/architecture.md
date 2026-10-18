@@ -308,9 +308,9 @@ Notes:
   equal positions; reads break ties by `id`, so order stays deterministic. No rebalancing job
   exists yet. Each insert into the same gap adds one decimal digit, which is harmless at
   realistic volumes (tested with 40 consecutive same-gap inserts).
-- **The board read** (`GET /projects/:id/board`) runs in a `REPEATABLE READ, READ ONLY`
-  transaction so its several queries observe one snapshot. This is the aggregate the board cache
-  stores (ADR-015).
+- **The board read** (`GET /projects/:id/board`) is one SQL statement that builds the whole
+  aggregate (columns, active tasks, assignees) as JSON, so it reads one snapshot without an
+  explicit transaction. This is the aggregate the board cache stores (ADR-015).
 
 ## Concurrency
 

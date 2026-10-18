@@ -114,8 +114,9 @@ a (cache-warm) build. Retagging by content hash is noted for later.
 
 ## Known limitations
 
-- Playwright E2E needs the Compose stack and isn't in CI. It runs locally, or against a deployed
-  backend with `WEB_URL`/`API_URL`.
+- Playwright E2E needs the whole Compose stack, so it is not part of `ci.yml`. `e2e.yml` builds
+  the stack and runs it nightly and on demand; it also runs locally, or against a deployed backend
+  with `WEB_URL`/`API_URL`.
 - Suites inside one shard run one after another (`--concurrency=1`). Some pause or stop shared
   containers, so running them in parallel within a job would need per-suite infrastructure
   anyway.

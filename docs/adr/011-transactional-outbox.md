@@ -171,8 +171,9 @@ Tests distinguish two kinds of duplicate:
 - Writes succeed while Kafka or the publisher is down. Consumers are eventually consistent,
   and during an outage the lag is the outage.
 - Every consumer must be idempotent on `eventId` (ADR-013).
-- Published rows accumulate. A retention job (for example, delete rows published more than 7
-  days ago) is deferred; kept rows are useful for debugging and publish-latency analysis.
+- Published rows are kept for `OUTBOX_RETENTION_HOURS` (default 168, Kafka's retention) for
+  debugging and publish-latency analysis, then deleted in batches by the publisher. Unpublished
+  rows are never deleted.
 - Every task version has exactly one event. A save that changes nothing writes nothing (no
   version bump, no event), and no-op assignment changes were already silent.
 
