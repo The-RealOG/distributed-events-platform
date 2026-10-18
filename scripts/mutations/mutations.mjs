@@ -15,6 +15,10 @@ const PUBLISHER = 'apps/outbox-publisher/src/publisher.ts';
 const PUBLISH_CALL =
   'published = await this.#o.sink.publish(row.event, { key: row.partitionKey });';
 const LEASE_CHECK = 'AND (c.claimed_until IS NULL OR c.claimed_until < now())';
+// The claim's row lock. The retention query has its own FOR UPDATE SKIP LOCKED, so the match
+// includes the line that follows the claim's lock.
+const CLAIM_LOCK = '      FOR UPDATE SKIP LOCKED\n    )\n    UPDATE outbox_events AS o';
+const CLAIM_LOCK_REMOVED = '    )\n    UPDATE outbox_events AS o';
 
 // Idempotent consumption
 const IDEM = 'packages/database/src/idempotency.ts';
@@ -186,7 +190,7 @@ export const mutations = [
     title: 'claim ignores live leases and row locks',
     edits: [
       { file: OUTBOX, find: `        ${LEASE_CHECK}\n`, replace: '' },
-      { file: OUTBOX, find: '      FOR UPDATE SKIP LOCKED\n', replace: '' },
+      { file: OUTBOX, find: CLAIM_LOCK, replace: CLAIM_LOCK_REMOVED },
     ],
     tests: [{ ...PUB, files: ['test/publisher.int.test.ts'] }],
   },
@@ -194,7 +198,7 @@ export const mutations = [
     id: 'outbox-04b-skip-locked-removed',
     group: 'outbox',
     title: 'claim keeps the lease check but takes no row locks (concurrent claimers race)',
-    edits: [{ file: OUTBOX, find: '      FOR UPDATE SKIP LOCKED\n', replace: '' }],
+    edits: [{ file: OUTBOX, find: CLAIM_LOCK, replace: CLAIM_LOCK_REMOVED }],
     tests: [{ ...PUB, files: ['test/publisher.int.test.ts'], name: 'Invariant 6' }],
   },
   {
