@@ -127,6 +127,10 @@ services:
         condition: service_completed_successfully
       valkey:
         condition: service_started
+      # Attachments need the bucket and its CORS rules. Depending on the one-shot init job also
+      # lets `docker compose up --wait` accept its exit instead of reporting a failure.
+      s3-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3001/ready']
       interval: 5s
