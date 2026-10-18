@@ -48,6 +48,10 @@ const projectServiceEnv = () => ({
   CACHE_ENABLED: 'true',
   REDIS_URL: redis.url,
   CACHE_TTL_SECONDS: '300',
+  // These tests assert cache states (HIT, MISS), not latency. With the 250 ms production timeout,
+  // one slow Redis reply on a loaded runner reads as BYPASS (the designed fallback) and fails an
+  // assertion about invalidation. Redis outages are covered by their own suites.
+  CACHE_COMMAND_TIMEOUT_MS: '2000',
 });
 const startActivity = async () =>
   (activity = await startService('activity-service', {

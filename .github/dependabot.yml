@@ -1,0 +1,25 @@
+# Weekly update proposals as pull requests; CI decides whether each one is safe to merge.
+# Grouped so a week's updates arrive as a few PRs rather than dozens.
+version: 2
+updates:
+  # Base images in infrastructure/docker/*.Dockerfile (pinned to exact versions).
+  - package-ecosystem: docker
+    directory: /infrastructure/docker
+    schedule: { interval: weekly }
+    groups:
+      base-images: { patterns: ['*'] }
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ['*'] }
+
+  # npm workspaces share the root lockfile, so the root directory covers every package.
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]

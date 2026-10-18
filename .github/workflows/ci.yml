@@ -6,6 +6,7 @@ name: CI
 #   static  (format, lint, typecheck)          ┐
 #   unit    (unit + architecture guards, build) ├ in parallel, no Docker
 #   security (npm audit, gitleaks)             ┘
+#   images  (Dockerfile lint, build, non-root and no-npm checks, vulnerability scan)
 #
 # Turbo's local cache is persisted between runs, so unchanged packages are not re-linted,
 # re-typechecked or re-built. Integration results are never cached (turbo.json).
@@ -97,6 +98,51 @@ jobs:
         run: |
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar xz gitleaks
           ./gitleaks git --no-banner --redact -v
+
+  # The production images, built on the runner (never on a developer machine). Two represent all
+  # eight: every backend service uses node-service.Dockerfile, and the web app has its own.
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {
+              image: project-service,
+              dockerfile: node-service.Dockerfile,
+              args: "APP=@dpp/project-service\nAPP_DIR=apps/project-service",
+            }
+          - { image: web, dockerfile: web.Dockerfile, args: 'VITE_API_BASE_URL=/api' }
+    name: images (${{ matrix.image }})
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint Dockerfile
+        run: |
+          curl -sSfL -o hadolint https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64
+          chmod +x hadolint
+          ./hadolint infrastructure/docker/${{ matrix.dockerfile }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infrastructure/docker/${{ matrix.dockerfile }}
+          build-args: ${{ matrix.args }}
+          tags: dpp/${{ matrix.image }}:ci
+          load: true
+          cache-from: type=gha,scope=ci-${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=ci-${{ matrix.image }}
+      - name: Runs as a non-root user without package managers
+        run: |
+          uid=$(docker run --rm --entrypoint id dpp/${{ matrix.image }}:ci -u)
+          echo "uid=$uid"; [ "$uid" != "0" ]
+          if docker run --rm --entrypoint sh dpp/${{ matrix.image }}:ci -c 'command -v npm || command -v npx'; then
+            echo "package manager present in the runtime image"; exit 1
+          fi
+      - name: Vulnerability scan (fails on fixable HIGH or CRITICAL)
+        run: |
+          curl -sSfL https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz | tar xz trivy
+          ./trivy image --no-progress --scanners vuln --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 dpp/${{ matrix.image }}:ci
 
   # Real PostgreSQL/Kafka/Valkey via Testcontainers. Shards run in parallel on separate runners;
   # each suite keeps its own containers and isolation, exactly as before.

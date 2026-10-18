@@ -10,7 +10,11 @@ plan (6 s) ──────────► integration: kafka │ system │ p
 static   format · lint · typecheck (Turbo-cached)          ┐
 unit     unit/component tests · architecture guards · build ├ all in parallel, no Docker
 security npm audit (lockfile) · gitleaks (full history)    ┘
+images   hadolint · build · non-root, no npm · Trivy scan    (project-service and web images)
 ```
+
+Dependabot (`.github/dependabot.yml`) proposes weekly, grouped updates for the pinned base
+images, the GitHub Actions and npm dependencies; each arrives as a pull request that CI checks.
 
 ## What runs when
 
@@ -27,7 +31,7 @@ Examples of what that affected rule selects:
 - A `packages/cache` change runs the cache, project-service and system suites.
 - An `apps/web` change runs no infrastructure tests.
 
-Static checks, unit tests and security scans always run.
+Static checks, unit tests, security scans and the image checks always run.
 
 `scripts/ci/plan.mjs` makes this decision. It **fails the run** if any workspace with a
 `test:integration` script is not assigned to a shard, so a new suite can't be silently skipped.
@@ -105,9 +109,21 @@ Nothing was removed or weakened:
 - There's no `continue-on-error`, and retries weren't added to hide flakiness.
 - The deliberate-break workflow is unchanged.
 
+## Images
+
+The `images` job builds the two Dockerfiles CI can't otherwise see break: `node-service.Dockerfile`
+(built for project-service; every backend image uses it) and `web.Dockerfile`. For each, it
+lints the Dockerfile with hadolint, checks the image runs as a non-root user and contains no
+npm/npx, and scans it with Trivy, failing on any HIGH or CRITICAL vulnerability that has a fix.
+Unfixed vulnerabilities are not failures: there is nothing to upgrade to. Base images are pinned
+to exact versions (`node:24.21.0-alpine3.24`, `nginx-unprivileged:1.30.6-alpine3.24`), so a
+rebuild of the same commit starts from the same base. Each runtime stage also runs
+`apk upgrade`, so Alpine security fixes published after the base image was built still reach the
+image; Dependabot moves the pinned base forward.
+
 ## Deploy pipeline
 
-CI builds no images, so there's no CI-then-deploy rebuild of the same commit. The deploy workflow
+These CI images are checks only; they are never pushed. The deploy workflow
 builds each image once per commit SHA, skips SHAs already in ECR, and uses the BuildKit GitHub
 Actions cache. One gap remains: an image whose inputs didn't change still gets a new SHA tag and
 a (cache-warm) build. Retagging by content hash is noted for later.
