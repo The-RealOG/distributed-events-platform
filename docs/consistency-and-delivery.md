@@ -38,9 +38,9 @@ consumer, and every read model converges to PostgreSQL, within the Kafka durabil
   `min.insync.replicas=2`, and the producer uses `acks=-1`. An acknowledged event is therefore on
   both brokers and survives losing either one. While a broker is down, publishes (and consumer
   offset commits) fail and are retried. Events wait in the outbox and HTTP writes are unaffected,
-  so a broker outage delays events rather than risking them. Publishing with this setting passed
-  `aws:test` on 2026-10-18, but the broker-reboot drill (`aws:demo:failures`) last ran with
-  `min.insync.replicas=1` and has not been repeated.
+  so a broker outage delays events rather than risking them. Verified on AWS on 2026-10-19: with
+  one of two brokers rebooting, 180 of 180 writes succeeded and every event arrived 25 s after the
+  cluster recovered ([performance.md](performance.md)).
 - **Retried creates are safe with an `Idempotency-Key`.** `POST /tasks` and
   `POST /tasks/:id/comments` accept the header. The key is claimed in the same transaction as the
   change and stores its response: a retry replays it, a concurrent duplicate waits and then
