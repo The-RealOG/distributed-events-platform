@@ -100,11 +100,30 @@ export function registerHttpMetrics(app: FastifyInstance, metrics: Metrics): voi
   });
 }
 
-/** Connection-pool gauges (pg.Pool exposes these counts directly). */
+/**
+ * Connection-pool gauges (pg.Pool exposes these counts directly), plus counters of connections
+ * opened and removed. A steady pool opens each connection once; a rising count under load means
+ * connections are being dropped and re-established (each costs a TLS and SCRAM handshake).
+ */
 export function registerPoolMetrics(
   metrics: Metrics,
-  pool: { totalCount: number; idleCount: number; waitingCount: number },
+  pool: {
+    totalCount: number;
+    idleCount: number;
+    waitingCount: number;
+    on(event: 'connect' | 'remove', listener: () => void): unknown;
+  },
 ): void {
+  const opened = metrics.counter({
+    name: 'db_pool_connections_opened_total',
+    help: 'Database connections opened by the pool',
+  });
+  const removed = metrics.counter({
+    name: 'db_pool_connections_removed_total',
+    help: 'Database connections closed or discarded by the pool (idle timeout, error, query timeout)',
+  });
+  pool.on('connect', () => opened.inc());
+  pool.on('remove', () => removed.inc());
   metrics.gauge({
     name: 'db_pool_connections',
     help: 'Database pool connections by state',
