@@ -47,12 +47,14 @@ module "secrets" {
 }
 
 module "rds" {
-  source                = "../../modules/rds"
-  name                  = local.name
-  subnet_ids            = module.networking.data_subnet_ids
-  security_group_id     = module.security.ids["rds"]
-  engine_version        = var.postgres_version
-  instance_class        = "db.t4g.micro"
+  source            = "../../modules/rds"
+  name              = local.name
+  subnet_ids        = module.networking.data_subnet_ids
+  security_group_id = module.security.ids["rds"]
+  engine_version    = var.postgres_version
+  # 2 GiB: on db.t4g.micro (1 GiB) PostgreSQL swapped under sustained load and every statement
+  # stalled for seconds at a time (docs/performance.md, 2026-10-19).
+  instance_class        = "db.t4g.small"
   database_name         = "dpp"
   allocated_storage_gb  = 20
   backup_retention_days = 1
