@@ -28,11 +28,15 @@ cluster="$(cfg 'c["cluster"]')"
 } >"$dir/meta.txt"
 "$(dirname "$0")/snapshot.sh" "$dir/before"
 "$(dirname "$0")/pgstats.sh" "$dir/before/pgstats.json" || warn "no PostgreSQL stats (before)"
+"$(dirname "$0")/pgstatements.sh" "$dir/before/pgstatements.json" || warn "no statement stats (before)"
 start="$(date -u +%FT%TZ)"
 # Time series during the run (gauges are only meaningful over time).
 "$(dirname "$0")/poll.sh" "$dir/timeline.txt" >/dev/null 2>&1 &
 poller=$!
-trap 'kill $poller 2>/dev/null' EXIT
+# What each database connection is doing, every 5 s (wait events, lock blocking, longest statement).
+"$(dirname "$0")/pgactivity.sh" "$dir/pgactivity.txt" >/dev/null 2>&1 &
+sampler=$!
+trap 'kill $poller $sampler 2>/dev/null' EXIT
 gh workflow run load.yml --ref main -f script="$script" -f scenario="$scenario" -f label="$label" -f env="$extra" >/dev/null
 # Find THIS dispatch's run by its name (load.yml: run-name "load <label>"), never "the latest run":
 # the API can lag the dispatch, and the latest run may be the previous, already finished one, which
@@ -50,10 +54,15 @@ gh run watch "$run" --interval 20 >/dev/null 2>&1 || true
 # A failed watch must not end the run early either: wait until GitHub reports it completed.
 until [[ "$(gh run view "$run" --json status -q .status 2>/dev/null)" == completed ]]; do sleep 15; done
 end="$(date -u +%FT%TZ)"
-kill "$poller" 2>/dev/null || true
+kill "$poller" "$sampler" 2>/dev/null || true
 echo "$start $end" >"$dir/window.txt"
 gh run download "$run" -n "$label" -D "$dir" || warn "no artifact"
 "$(dirname "$0")/snapshot.sh" "$dir/after"
 "$(dirname "$0")/pgstats.sh" "$dir/after/pgstats.json" || warn "no PostgreSQL stats (after)"
+if "$(dirname "$0")/pgstatements.sh" "$dir/after/pgstatements.json"; then
+  node "$(dirname "$0")/pgstatements-delta.mjs" "$dir/before/pgstatements.json" "$dir/after/pgstatements.json" >"$dir/statements.txt" || true
+else
+  warn "no statement stats (after)"
+fi
 python3 "$(dirname "$0")/report.py" "$dir" >/dev/null
 info "report: tests/load/results/$label/report.md"
