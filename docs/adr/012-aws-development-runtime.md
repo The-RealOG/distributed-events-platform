@@ -22,7 +22,9 @@ the project brief). EC2-backed ECS would add instance management for no measured
 
 ### Database: RDS PostgreSQL 17, private
 
-- `db.t4g.micro`, single-AZ, 20 GB gp3, encrypted, TLS enforced (`rds.force_ssl=1`).
+- `db.t4g.small`, single-AZ, 20 GB gp3, encrypted, TLS enforced (`rds.force_ssl=1`). Originally
+  `db.t4g.micro`; changed on 2026-10-19 because its 1 GB of memory made PostgreSQL swap under
+  sustained load, stalling every statement (see [performance.md](../performance.md)).
 - 1-day automated backups. For the dev environment: no final snapshot and no deletion
   protection, so destroy leaves no cost behind.
 - The owner password is **managed by RDS in Secrets Manager**. Terraform never sees it.

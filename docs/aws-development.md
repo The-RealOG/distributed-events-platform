@@ -28,7 +28,7 @@ flowchart LR
       jobs[one-off tasks:<br/>migrate · kafka-tools]
     end
     subgraph data[data subnets · no internet route]
-      rds[(RDS PostgreSQL 17<br/>db.t4g.micro · TLS)]
+      rds[(RDS PostgreSQL 17<br/>db.t4g.small · TLS)]
       msk[(MSK 3.9<br/>2 × kafka.t3.small · IAM auth)]
       redis[(ElastiCache Valkey<br/>cache.t4g.micro · TLS)]
     end

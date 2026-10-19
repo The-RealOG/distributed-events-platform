@@ -27,7 +27,7 @@ info "1/4 state bucket"
 info "2/4 infrastructure plan"
 "$(dirname "$0")/plan.sh" -no-color | grep -E '^\s+# .* will be|^Plan:|No changes' || true
 if [[ "${1:-}" != "--yes" ]]; then
-  warn "This creates billable resources (MSK 2 × kafka.t3.small, RDS db.t4g.micro, ElastiCache cache.t4g.micro,"
+  warn "This creates billable resources (MSK 2 × kafka.t3.small, RDS db.t4g.small, ElastiCache cache.t4g.micro,"
   warn "an ALB, CloudFront, 6 Fargate tasks with public IPv4). Rates: npm run aws:cost-info. Remove with npm run aws:destroy."
   read -r -p "Type 'rebuild' to apply: " answer
   [[ "$answer" == "rebuild" ]] || die "not confirmed; nothing applied"

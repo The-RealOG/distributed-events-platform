@@ -16,7 +16,7 @@ cluster="$(cfg 'c["cluster"]')"
   echo "k6_env=$extra"
   echo "deployed_sha=$(aws ssm get-parameter --name "/${NAME_PREFIX}/image-tag" --query Parameter.Value --output text)"
   echo "harness_sha=$(git -C "$REPO_ROOT" rev-parse --short origin/main)"
-  # RDS burst buckets (db.t4g.micro): storage throughput/IOPS burst can run out under sustained
+  # RDS burst buckets (burstable db.t4g): storage throughput/IOPS burst can run out under sustained
   # writes, which throttles commits; a run started on an empty bucket is not comparable.
   for m in EBSByteBalance% EBSIOBalance% CPUCreditBalance; do
     echo "rds $m=$(aws cloudwatch get-metric-statistics --namespace AWS/RDS --metric-name "$m" \
