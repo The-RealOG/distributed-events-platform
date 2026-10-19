@@ -8,12 +8,20 @@ updates:
     schedule: { interval: weekly }
     groups:
       base-images: { patterns: ['*'] }
+    ignore:
+      # Odd nginx minors are mainline; stay on the stable line.
+      - dependency-name: nginxinc/nginx-unprivileged
+        versions: ['1.31.x']
 
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
     groups:
       actions: { patterns: ['*'] }
+    # Major versions change behaviour and are upgraded deliberately, one at a time.
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
 
   # npm workspaces share the root lockfile, so the root directory covers every package.
   - package-ecosystem: npm
@@ -23,3 +31,6 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
