@@ -2,7 +2,7 @@
 #   docker build -f infrastructure/docker/node-service.Dockerfile \
 #     --build-arg APP=@dpp/project-service --build-arg APP_DIR=apps/project-service .
 # Exact versions, so a rebuild of the same commit gets the same base; Dependabot proposes updates.
-ARG NODE_IMAGE=node:24.21.0-alpine3.24
+ARG NODE_IMAGE=node:24.22.0-alpine3.24
 
 # 1. Reduce the monorepo to the target service and its internal dependencies.
 FROM ${NODE_IMAGE} AS prune

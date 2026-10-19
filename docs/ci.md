@@ -116,7 +116,7 @@ The `images` job builds the two Dockerfiles CI can't otherwise see break: `node-
 lints the Dockerfile with hadolint, checks the image runs as a non-root user and contains no
 npm/npx, and scans it with Trivy, failing on any HIGH or CRITICAL vulnerability that has a fix.
 Unfixed vulnerabilities are not failures: there is nothing to upgrade to. Base images are pinned
-to exact versions (`node:24.21.0-alpine3.24`, `nginx-unprivileged:1.30.6-alpine3.24`), so a
+to exact versions (`node:24.22.0-alpine3.24`, `nginx-unprivileged:1.30.6-alpine3.24`), so a
 rebuild of the same commit starts from the same base. Each runtime stage also runs
 `apk upgrade`, so Alpine security fixes published after the base image was built still reach the
 image; Dependabot moves the pinned base forward.
