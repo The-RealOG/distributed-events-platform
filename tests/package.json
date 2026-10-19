@@ -23,11 +23,11 @@
     "@dpp/project-service": "*",
     "@dpp/realtime-service": "*",
     "@dpp/test-utils": "*",
-    "@playwright/test": "^1.63.0",
-    "@types/ws": "^8.18.1",
+    "@playwright/test": "^1.64.1",
+    "@types/ws": "^8.18.2",
     "kafkajs": "^2.2.4",
-    "pino": "^10.3.1",
+    "pino": "^10.4.0",
     "testcontainers": "^12.1.0",
-    "ws": "^8.21.3"
+    "ws": "^8.22.0"
   }
 }
