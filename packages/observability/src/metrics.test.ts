@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
 import {
@@ -58,10 +59,30 @@ describe('metrics', () => {
 
   it('reports pool gauges at scrape time', async () => {
     const metrics = new Metrics('pool-test');
-    const pool = { totalCount: 5, idleCount: 2, waitingCount: 1 };
+    const pool = Object.assign(new EventEmitter(), {
+      totalCount: 5,
+      idleCount: 2,
+      waitingCount: 1,
+    });
     registerPoolMetrics(metrics, pool);
     const text = await metrics.text();
     expect(text).toContain('db_pool_connections{state="active",service="pool-test"} 3');
     expect(text).toContain('db_pool_waiting_requests{service="pool-test"} 1');
+  });
+
+  it('counts connections the pool opens and removes', async () => {
+    const metrics = new Metrics('pool-test');
+    const pool = Object.assign(new EventEmitter(), {
+      totalCount: 0,
+      idleCount: 0,
+      waitingCount: 0,
+    });
+    registerPoolMetrics(metrics, pool);
+    pool.emit('connect');
+    pool.emit('connect');
+    pool.emit('remove');
+    const text = await metrics.text();
+    expect(text).toContain('db_pool_connections_opened_total{service="pool-test"} 2');
+    expect(text).toContain('db_pool_connections_removed_total{service="pool-test"} 1');
   });
 });
