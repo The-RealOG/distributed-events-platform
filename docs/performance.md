@@ -219,7 +219,8 @@ database logged connections dropped during the TLS handshake (a pool connect slo
 timeout) and one automatic `ANALYZE` of `outbox_events` taking 11.8 s; the other slow minutes have
 no matching database event. On 2026-10-17 the pattern began at about 22 minutes, against a much
 larger outbox table. The earlier reading that table growth alone caused it is therefore
-incomplete. **The cause is not established.**
+incomplete. The cause turned out to be RDS memory; see
+[The database stall: cause and fix](#the-database-stall-cause-and-fix-2026-10-19).
 
 ### Write-heavy at 25 VUs: the stall again, without CPU saturation
 
@@ -240,14 +241,9 @@ lag is unchanged; the tail is not.
   access on the write path rather than at Kafka acknowledgements. It does not rule out a
   contribution from `min.insync.replicas=2`.
 
-Three things changed together since 2026-10-17 (host model, Node patch version,
-`min.insync.replicas`), so these runs cannot attribute the drop. Experiments that would:
-
-1. The same write-heavy run with `min.insync.replicas=1` on the same deployment (one Kafka
-   setting).
-2. A pool that keeps connections open (`idleTimeoutMillis` 0 or a minimum size), to test whether
-   TLS + SCRAM reconnects under load are the stall.
-3. Per-statement timing (`pg_stat_statements`) during the slow minutes.
+A rerun on 2026-10-19 on an 8259CL host, with RDS not swapping, sustained 27.4 writes/s with
+0.06 % errors and a lag p99 of 0.60 s, matching 2026-10-17. `min.insync.replicas=2` was therefore
+not the cause; the database stall below was.
 
 ### Kafka broker reboot with `min.insync.replicas=2`
 
@@ -262,3 +258,54 @@ Durability over availability works as designed: the broker outage delayed events
 The audit after every run above passed: 116,121 events, none unpublished, none duplicated in the
 activity projection, every task version explained by exactly one event, and every consumer side
 effect committed together with its idempotency marker.
+
+## The database stall: cause and fix (2026-10-19)
+
+### Diagnosis
+
+Load runs now record what the database is doing: `pg_stat_activity` every 5 s, a
+`pg_stat_statements` delta, the RDS slow-statement and lock-wait log, and counters of
+connections the pool opens and removes.
+
+- **Statements themselves were fast.** The board query, the largest share of database time, took
+  1.0 ms on average. No lock waits were logged.
+- **But in a stall every statement slowed at once.** At 04:43:59 unrelated sub-millisecond
+  statements (project, workspace and task reads, an update, and the sampler's own query on a
+  separate connection) all took 1–3.3 s. The database server itself was pausing.
+- **RDS memory explained every run.** A `db.t4g.micro` has 1 GB:
+
+  | Run                              | RDS free memory | RDS swap    | stalled |
+  | -------------------------------- | --------------- | ----------- | ------- |
+  | soak, 2026-10-18                 | 83 → 48 MB      | 2 → 87 MB   | yes     |
+  | write-heavy, 2026-10-19 00:29    | 43–54 MB        | 49–107 MB   | yes     |
+  | soak, 2026-10-19 03:13           | 95–133 MB       | 0 → 20 MB   | no      |
+  | write-heavy, 2026-10-19 04:06    | 53–84 MB        | 22–29 MB    | no      |
+  | 55-VU balanced, 2026-10-19 04:23 | 40–52 MB        | 26 → 100 MB | yes     |
+
+  Swap grows over a run as tables, indexes and caches grow, which is why stalls began after about
+  30 minutes. While PostgreSQL waits on swapped memory every connection waits, which is why
+  neither RDS CPU nor disk latency showed it.
+
+- **Ruled out along the way:** lock contention (none logged), slow statements, RDS CPU credits
+  (unlimited mode, never throttled), disk (about 1 ms), `min.insync.replicas=2`, and pool
+  reconnects. The pool does close and reopen idle connections (pg's 10 s idle timeout, about 3–10
+  a minute), but it does so in clean runs too.
+
+### Fix and verification
+
+RDS moved to `db.t4g.small` (2 GB; [ADR-012](adr/012-aws-development-runtime.md)). Same Project
+Service task and host (Xeon 8259CL), same workload (balanced, 55 VUs, 20 min), only the instance
+class changed:
+
+| Signal                             | `db.t4g.micro`       | `db.t4g.small`       |
+| ---------------------------------- | -------------------- | -------------------- |
+| RDS free memory, lowest            | 40 MB                | 829 MB               |
+| RDS swap, highest                  | 100 MB               | 0 MB                 |
+| Statements over 1 s in the RDS log | many, at once        | none                 |
+| 5xx                                | 78                   | 0                    |
+| p95 / p99 / max                    | 357 / 804 ms / 8.1 s | 295 / 525 ms / 1.4 s |
+| ALB response, per-minute average   | 28–150 ms            | 34–70 ms             |
+| Throughput                         | 87.7 req/s           | 91.2 req/s           |
+
+Project Service CPU was 98–99 % in both runs: this workload deliberately saturates it, and its
+remaining queueing is that known CPU limit, not a stall.
