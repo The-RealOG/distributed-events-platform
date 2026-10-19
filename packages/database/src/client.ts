@@ -14,6 +14,15 @@ export interface DatabaseOptions {
   maxConnections?: number;
   /** How long to wait for a pooled connection before failing, instead of queueing forever. */
   connectionTimeoutMs?: number;
+  /**
+   * How long an unused connection stays open. Default 0: never closed for being idle. pg's own
+   * default (10 s) made a steadily loaded pool close and reopen connections constantly (it reuses
+   * the most recently released one, so the rest sit idle), and each reopen costs a TLS and SCRAM
+   * handshake on the service's CPU (about 3–10 per minute under steady load in the 2026-10-19
+   * runs). Under CPU pressure a reopen can exceed the connect timeout and fail the request.
+   * The pool is small and bounded by maxConnections.
+   */
+  idleTimeoutMs?: number;
   /** Server-side cap so a runaway query cannot hold a connection indefinitely. */
   statementTimeoutMs?: number;
   /**
@@ -45,6 +54,7 @@ export function createDatabase(options: DatabaseOptions): DatabaseHandle {
     application_name: options.applicationName,
     max: options.maxConnections ?? 10,
     connectionTimeoutMillis: options.connectionTimeoutMs ?? 5_000,
+    idleTimeoutMillis: options.idleTimeoutMs ?? 0,
     statement_timeout: options.statementTimeoutMs ?? 10_000,
     query_timeout: options.queryTimeoutMs ?? (options.statementTimeoutMs ?? 10_000) + 5_000,
     ...(options.tlsCaPem ? { ssl: { ca: options.tlsCaPem, rejectUnauthorized: true } } : {}),
