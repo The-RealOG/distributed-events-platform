@@ -239,10 +239,10 @@ The reasoning behind each choice is in [docs/adr/](docs/adr/).
   with the publisher stopped), the MSK broker-reboot drill with `min.insync.replicas=2`, load
   tests and `aws:invariants` ([docs/performance.md](docs/performance.md)). The RDS reboot and
   task-stop drills were last run on earlier code.
-- **Under sustained load the database pool sometimes stalls.** A 45-minute soak and write-heavy
-  runs showed minutes where requests queue for a database connection and a few return 503,
-  without CPU or disk saturation. The cause is not yet established; the experiments that would
-  settle it are listed in [docs/performance.md](docs/performance.md).
+- **The dev database is sized for this load, not more.** `db.t4g.micro` (1 GB) swapped under
+  sustained load and stalled every statement; `db.t4g.small` removed the stalls (0 errors, no swap
+  in the same test). Larger load needs a larger instance; see
+  [docs/performance.md](docs/performance.md).
 - **Kafka favours durability over availability.** MSK runs `min.insync.replicas=2` with two
   brokers, so losing a broker pauses publication (events wait in the outbox) rather than risking
   acknowledged events.
