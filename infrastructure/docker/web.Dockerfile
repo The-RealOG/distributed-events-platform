@@ -2,7 +2,7 @@
 #   docker build -f infrastructure/docker/web.Dockerfile \
 #     --build-arg VITE_API_BASE_URL=http://localhost:3000/api .
 # Exact versions, so a rebuild of the same commit gets the same base; Dependabot proposes updates.
-ARG NODE_IMAGE=node:24.21.0-alpine3.24
+ARG NODE_IMAGE=node:24.22.0-alpine3.24
 
 FROM ${NODE_IMAGE} AS prune
 WORKDIR /repo
