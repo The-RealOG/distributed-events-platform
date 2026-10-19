@@ -24,6 +24,21 @@ resource "aws_db_parameter_group" "this" {
     # How RDS records this parameter; declaring it avoids a perpetual diff.
     apply_method = "pending-reboot"
   }
+  # Diagnostics: log any statement slower than 1 s and any lock wait longer than deadlock_timeout
+  # (1 s), so a slow minute under load shows which statement and which lock. Bind parameters are
+  # not logged (they carry user data such as task titles and email addresses).
+  parameter {
+    name  = "log_min_duration_statement"
+    value = "1000"
+  }
+  parameter {
+    name  = "log_lock_waits"
+    value = "1"
+  }
+  parameter {
+    name  = "log_parameter_max_length"
+    value = "0"
+  }
 }
 
 resource "aws_db_instance" "this" {
