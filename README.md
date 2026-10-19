@@ -234,11 +234,15 @@ The reasoning behind each choice is in [docs/adr/](docs/adr/).
 
 ## Limitations
 
-- **AWS verification covers the normal path, not every failure drill.** On 2026-10-18 the
-  current code (`9dff102`) was deployed and passed `aws:smoke`, `aws:test` (correlation across
-  every hop, Kafka probe, network boundaries, CRUD with the publisher stopped) and
-  `aws:invariants`. The failure demos (`aws:demo:failures`: RDS and MSK broker reboots, task
-  stops) were last run on earlier code, before `min.insync.replicas=2`.
+- **AWS verification is recent but not exhaustive.** On 2026-10-18/19 the current code passed
+  `aws:smoke`, `aws:test` (correlation across every hop, Kafka probe, network boundaries, CRUD
+  with the publisher stopped), the MSK broker-reboot drill with `min.insync.replicas=2`, load
+  tests and `aws:invariants` ([docs/performance.md](docs/performance.md)). The RDS reboot and
+  task-stop drills were last run on earlier code.
+- **Under sustained load the database pool sometimes stalls.** A 45-minute soak and write-heavy
+  runs showed minutes where requests queue for a database connection and a few return 503,
+  without CPU or disk saturation. The cause is not yet established; the experiments that would
+  settle it are listed in [docs/performance.md](docs/performance.md).
 - **Kafka favours durability over availability.** MSK runs `min.insync.replicas=2` with two
   brokers, so losing a broker pauses publication (events wait in the outbox) rather than risking
   acknowledged events.

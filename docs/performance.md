@@ -176,3 +176,89 @@ but from about 22 minutes in, every second minute showed slower responses and a 
 RDS CPU rose, coinciding with automatic `ANALYZE` runs on `outbox_events`. At the time published outbox
 rows were never deleted, so the table only grew. This led to outbox retention
 ([ADR-011](adr/011-transactional-outbox.md)).
+
+## Results (measured 2026-10-18/19, commit `2a012a5`)
+
+Current code: outbox retention, `Idempotency-Key` support, gateway rate limiting and
+`min.insync.replicas=2` are all deployed. Project Service ran on a Xeon Platinum 8175M host for
+every run below, so the balanced ladder is compared with the two 2026-10-17 runs on the same host
+model, not with the 8259CL figures above. The images ran Node 24.21.0; the 2026-10-17 images ran
+24.22.0.
+
+### Balanced ladder: no regression
+
+| VUs | req/s 10-17 → now | p95 10-17 → now | errors 10-17 → now | Project Service CPU-ms/req | RDS CPU % |
+| --- | ----------------- | --------------- | ------------------ | -------------------------- | --------- |
+| 50  | 84 → 86 (85–90)   | 422 → 382 ms    | 0 → 0 %            | 2.9 → 2.8                  | 24 → 14   |
+| 100 | 84 → 86 (86–87)   | 1426 → 1358 ms  | 0.77 → 0 %         | 2.8 → 2.9                  | 25 → 15   |
+| 200 | 71 → 71 (71–72)   | 3781 → 3670 ms  | 0 → 0 %            | 3.4 → 3.5                  | 28 → 15   |
+
+2 runs before, 3 now. The features added since cost no measurable throughput. Gateway CPU per
+request rose from about 1.3–1.5 to 1.5–1.6 ms (the rate limiter is the likely cost; it was not
+profiled). RDS CPU is lower, most likely because this database was an hour old and its tables
+small. It is not evidence for outbox retention, which deletes only events older than 168 h and had
+deleted nothing yet.
+
+### Soak: 45 minutes, balanced at 40 VUs
+
+| Signal               | Result                                              | Criterion |
+| -------------------- | --------------------------------------------------- | --------- |
+| p50 / p95 / p99      | 29 / 217 / 481 ms; every operation p95 ≤ 332 ms     | pass      |
+| Errors               | 0.08 % (47 × 503, plus 1,121 expected 409s)         | pass      |
+| Outbox and consumers | 52,033 events, 0 pending, 0 retries, 0 dead letters | pass      |
+| Memory               | flat (Project Service 27–30 %, gateway 19–20 %)     | pass      |
+| Project Service CPU  | 87–95 % per-minute maximum                          | **fail**  |
+
+On the slower 8175M host, 40 VUs is close to saturation rather than moderate load.
+
+**The periodic degradation seen in the 2026-10-17 soak recurs.** For the first 30 minutes the
+mean ALB target response time stayed at 32–50 ms and the Project Service pool had no waiting
+requests. From about 31 minutes, single minutes showed rising response times (65, 78, 87, 114,
+144 ms), pool waits of 13–29 requests, and all 47 errors in two of them. In those two minutes the
+database logged connections dropped during the TLS handshake (a pool connect slower than its 5 s
+timeout) and one automatic `ANALYZE` of `outbox_events` taking 11.8 s; the other slow minutes have
+no matching database event. On 2026-10-17 the pattern began at about 22 minutes, against a much
+larger outbox table. The earlier reading that table growth alone caused it is therefore
+incomplete. **The cause is not established.**
+
+### Write-heavy at 25 VUs: the stall again, without CPU saturation
+
+| Run | successful writes/s | errors | request p99 | outbox lag p50 / p95 / p99 / max | max backlog |
+| --- | ------------------- | ------ | ----------- | -------------------------------- | ----------- |
+| 1   | 22.1                | 0.44 % | 4.8 s       | 0.29 / 0.67 / 4.9 / 11.9 s       | 38          |
+| 2   | 19.4                | 0.88 % | 5.1 s       | 0.29 / 0.83 / 7.5 / 15.6 s       | 39          |
+
+On 2026-10-17 (8259CL host, `min.insync.replicas=1`) the same workload sustained 30–33 writes/s
+with 0 % errors and a lag p99 of 0.60 s. Every event was still published (0 pending) and typical
+lag is unchanged; the tail is not.
+
+- Project Service CPU was 67–77 %, RDS CPU 20–31 %, RDS read and write latency about 1 ms, disk
+  queue depth below 0.2 and the storage burst balance 88–98 %. Neither CPU nor disk explains it.
+- The Project Service pool still reached 14–15 waiting requests.
+- The publisher's lag tail matches the API's latency tail (p99 about 5 s for both), while its
+  median is unchanged and its CPU stayed at 36–44 %. That points at one stall around database
+  access on the write path rather than at Kafka acknowledgements. It does not rule out a
+  contribution from `min.insync.replicas=2`.
+
+Three things changed together since 2026-10-17 (host model, Node patch version,
+`min.insync.replicas`), so these runs cannot attribute the drop. Experiments that would:
+
+1. The same write-heavy run with `min.insync.replicas=1` on the same deployment (one Kafka
+   setting).
+2. A pool that keeps connections open (`idleTimeoutMillis` 0 or a minimum size), to test whether
+   TLS + SCRAM reconnects under load are the stall.
+3. Per-statement timing (`pg_stat_statements`) during the slow minutes.
+
+### Kafka broker reboot with `min.insync.replicas=2`
+
+One of the two brokers was rebooted under a steady write load. All 180 writes during the reboot
+returned success; the cluster was `ACTIVE` again after 206 s; the publisher logged 7 failed
+publishes (expected: with one broker down, `acks=-1` cannot be satisfied, so events wait in the
+outbox), and the last write's event reached the activity feed 25 s after the cluster recovered.
+Durability over availability works as designed: the broker outage delayed events and lost none.
+
+### Data invariants after all load
+
+The audit after every run above passed: 116,121 events, none unpublished, none duplicated in the
+activity projection, every task version explained by exactly one event, and every consumer side
+effect committed together with its idempotency marker.
