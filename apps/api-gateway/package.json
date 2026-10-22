@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@dpp/auth": "*",
     "@dpp/config": "*",
     "@dpp/contracts": "*",
     "@dpp/observability": "*",

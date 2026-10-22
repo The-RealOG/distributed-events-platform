@@ -23,6 +23,7 @@ beforeAll(async () => {
   });
   gateway = await startService('api-gateway', {
     PROJECT_SERVICE_URL: projectService.url,
+    JWT_SECRET: 'system-test-secret-system-test-secret',
     CORS_ORIGINS: 'http://localhost:8080',
     UPSTREAM_CONNECT_TIMEOUT_MS: '1000',
     UPSTREAM_REQUEST_TIMEOUT_MS: '5000',

@@ -86,7 +86,7 @@ beforeAll(async () => {
     startService('project-service', projectServiceEnv()),
     startService('project-service', projectServiceEnv()),
   ]);
-  gateway = await startService('api-gateway', { PROJECT_SERVICE_URL: replicaA.url });
+  gateway = await startService('api-gateway', { PROJECT_SERVICE_URL: replicaA.url, JWT_SECRET });
   publisher = await startService('outbox-publisher', {
     DATABASE_URL: postgres.url,
     ...kafkaEnv('outbox-publisher'),

@@ -64,6 +64,7 @@ beforeAll(async () => {
   ]);
   gateway = await startService('api-gateway', {
     PROJECT_SERVICE_URL: projectService.url,
+    JWT_SECRET,
     REALTIME_SERVICE_URL: realtime.url,
     CORS_ORIGINS: APP_ORIGIN,
   });
