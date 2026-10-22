@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { createServer as createHttpServer } from 'node:http';
 import { createServer } from 'node:net';
+import { LocalJwtAuthProvider } from '@dpp/auth';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -49,6 +51,16 @@ async function unusedPort(): Promise<number> {
   });
 }
 
+const JWT_SECRET = 'gateway-test-secret-gateway-test-secret';
+const tokens = new LocalJwtAuthProvider({
+  secret: JWT_SECRET,
+  issuer: 'dpp-local',
+  audience: 'dpp-api',
+  ttlSeconds: 300,
+});
+/** A token the Project Service would accept, for a new user. */
+const validToken = () => tokens.issue({ userId: randomUUID(), email: 'user@example.com' });
+
 const closers: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
   while (closers.length) await closers.pop()!();
@@ -59,6 +71,7 @@ async function gatewayFor(upstreamUrl: string, overrides: Record<string, string>
     PORT: '3000',
     LOG_LEVEL: 'silent',
     PROJECT_SERVICE_URL: upstreamUrl,
+    JWT_SECRET,
     CORS_ORIGINS: 'http://localhost:8080',
     UPSTREAM_CONNECT_TIMEOUT_MS: '500',
     UPSTREAM_REQUEST_TIMEOUT_MS: '1000',
@@ -343,15 +356,16 @@ describe('browser boundary', () => {
     expect(upstream.received).toHaveLength(0);
   });
 
-  it('limits each user separately and answers 429 RATE_LIMITED with Retry-After', async () => {
+  it('limits each verified user separately and answers 429 RATE_LIMITED with Retry-After', async () => {
     const upstream = await withUpstream();
     const { app } = await gatewayFor(upstream.url, { RATE_LIMIT_MAX: '2' });
+    const [alice, bob] = await Promise.all([validToken(), validToken()]);
     const asUser = (token: string) =>
       app.inject({ method: 'GET', url: '/api/me', headers: { authorization: `Bearer ${token}` } });
 
-    const statuses = [(await asUser('alice')).statusCode, (await asUser('alice')).statusCode];
-    const limited = await asUser('alice');
-    const otherUser = await asUser('bob');
+    const statuses = [(await asUser(alice)).statusCode, (await asUser(alice)).statusCode];
+    const limited = await asUser(alice);
+    const otherUser = await asUser(bob);
 
     expect(statuses).toEqual([200, 200]);
     expect(limited.statusCode).toBe(429);
@@ -360,6 +374,107 @@ describe('browser boundary', () => {
     expect(otherUser.statusCode).toBe(200);
     // The limited request never reached the project service.
     expect(upstream.received).toHaveLength(3);
+  });
+
+  it('puts missing and invalid tokens in the client address bucket, however often they change', async () => {
+    const upstream = await withUpstream();
+    const { app } = await gatewayFor(upstream.url, { RATE_LIMIT_MAX: '3' });
+    const forged = await new LocalJwtAuthProvider({
+      secret: 'not-the-gateway-secret-not-the-gateway-secret',
+      issuer: 'dpp-local',
+      audience: 'dpp-api',
+      ttlSeconds: 300,
+    }).issue({ userId: randomUUID(), email: 'mallory@example.com' });
+    const send = (authorization?: string) =>
+      app.inject({
+        method: 'GET',
+        url: '/api/me',
+        headers: authorization ? { authorization } : {},
+      });
+
+    // A fresh made-up token every time, a correctly shaped JWT with a bad signature, and none.
+    const statuses = [];
+    for (const auth of [`Bearer ${randomUUID()}`, `Bearer ${forged}`, undefined]) {
+      statuses.push((await send(auth)).statusCode);
+    }
+    const rotated = await send(`Bearer ${randomUUID()}`);
+
+    expect(statuses).toEqual([200, 200, 200]);
+    expect(rotated.statusCode).toBe(429);
+    expect(rotated.json().error.code).toBe('RATE_LIMITED');
+    expect(rotated.headers['retry-after']).toBeDefined();
+    expect(upstream.received).toHaveLength(3);
+    // A real user at the same address keeps their own quota.
+    expect((await send(`Bearer ${await validToken()}`)).statusCode).toBe(200);
+  });
+
+  it('ignores X-Forwarded-For unless the gateway is configured to trust its proxies', async () => {
+    const upstream = await withUpstream();
+    const { app } = await gatewayFor(upstream.url, { RATE_LIMIT_MAX: '1' });
+    const from = (forwardedFor: string) =>
+      app.inject({ method: 'GET', url: '/api/me', headers: { 'x-forwarded-for': forwardedFor } });
+
+    expect((await from('203.0.113.1')).statusCode).toBe(200);
+    expect((await from('203.0.113.2')).statusCode).toBe(429);
+  });
+
+  describe('behind CloudFront and the ALB', () => {
+    const ALB = '10.0.0.37';
+    const CLOUDFRONT_EDGE = '130.176.1.10';
+    const behindProxies = (upstreamUrl: string) =>
+      gatewayFor(upstreamUrl, {
+        RATE_LIMIT_MAX: '1',
+        TRUSTED_PROXY_CIDRS: '10.0.0.0/16',
+        TRUSTED_PROXY_HOPS: '2',
+      });
+    // CloudFront appends the viewer's address to whatever the viewer sent; the ALB appends
+    // CloudFront's.
+    const viaProxies = (app: FastifyInstance, viewer: string, spoofed?: string) =>
+      app.inject({
+        method: 'GET',
+        url: '/api/me',
+        remoteAddress: ALB,
+        headers: {
+          'x-forwarded-for': [spoofed, viewer, CLOUDFRONT_EDGE].filter(Boolean).join(', '),
+        },
+      });
+
+    it('limits each viewer address separately and forwards it upstream', async () => {
+      const upstream = await withUpstream();
+      const { app } = await behindProxies(upstream.url);
+
+      expect((await viaProxies(app, '203.0.113.1')).statusCode).toBe(200);
+      expect((await viaProxies(app, '203.0.113.1')).statusCode).toBe(429);
+      expect((await viaProxies(app, '203.0.113.2')).statusCode).toBe(200);
+      expect(upstream.received.map((r) => r.headers['x-forwarded-for'])).toEqual([
+        '203.0.113.1',
+        '203.0.113.2',
+      ]);
+    });
+
+    it('ignores addresses the viewer put in X-Forwarded-For itself', async () => {
+      const upstream = await withUpstream();
+      const { app } = await behindProxies(upstream.url);
+
+      expect((await viaProxies(app, '203.0.113.1', '198.51.100.1')).statusCode).toBe(200);
+      expect((await viaProxies(app, '203.0.113.1', '198.51.100.2')).statusCode).toBe(429);
+    });
+
+    it('trusts no forwarding header on a connection that did not come from the ALB', async () => {
+      const upstream = await withUpstream();
+      const { app } = await behindProxies(upstream.url);
+      const direct = (forwardedFor: string) =>
+        app.inject({
+          method: 'GET',
+          url: '/api/me',
+          remoteAddress: '192.0.2.50',
+          headers: { 'x-forwarded-for': forwardedFor },
+        });
+
+      expect((await direct(`203.0.113.1, ${CLOUDFRONT_EDGE}`)).statusCode).toBe(200);
+      expect((await direct(`203.0.113.2, ${CLOUDFRONT_EDGE}`)).statusCode).toBe(429);
+      expect(upstream.received[0]!.headers['x-forwarded-for']).toBe('192.0.2.50');
+    });
   });
 
   it('does not count probes, preflights or the WebSocket path against the limit', async () => {
@@ -475,6 +590,7 @@ describe('probes and shutdown', () => {
       PORT: '3000',
       LOG_LEVEL: 'silent',
       PROJECT_SERVICE_URL: upstream.url,
+      JWT_SECRET,
     });
     const app = await buildApp(config, { ready: true });
     const address = await app.listen({ port: 0, host: '127.0.0.1' });

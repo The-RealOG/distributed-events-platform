@@ -1,4 +1,10 @@
-import { createHash } from 'node:crypto';
+import { BlockList, isIPv6 } from 'node:net';
+import {
+  AuthenticationError,
+  LocalJwtAuthProvider,
+  parseBearerToken,
+  type AuthProvider,
+} from '@dpp/auth';
 import {
   createLoggerOptions,
   registerHttpMetrics,
@@ -31,9 +37,14 @@ export async function buildApp(
     logger: createLoggerOptions(SERVICE_NAME, config.LOG_LEVEL),
     ...requestIdOptions(),
     bodyLimit: config.BODY_LIMIT_BYTES,
-    // X-Forwarded-For is not trusted: it would let callers spoof their address. Behind the ALB,
-    // request.ip is therefore the load balancer's (see rateLimitKey).
-    trustProxy: false,
+    // request.ip is the client's address only through the known proxies (see trustedProxies).
+    trustProxy: trustedProxies(config),
+  });
+  const authProvider = new LocalJwtAuthProvider({
+    secret: config.JWT_SECRET,
+    issuer: config.JWT_ISSUER,
+    audience: config.JWT_AUDIENCE,
+    ttlSeconds: 60, // verification only; the gateway issues nothing
   });
   registerRequestContext(app);
   registerErrorHandling(app);
@@ -63,7 +74,7 @@ export async function buildApp(
   await app.register(rateLimit, {
     max: config.RATE_LIMIT_MAX,
     timeWindow: config.RATE_LIMIT_WINDOW_MS,
-    keyGenerator: rateLimitKey,
+    keyGenerator: (request) => rateLimitKey(request, authProvider),
     allowList: (request) =>
       request.method === 'OPTIONS' ||
       !request.url.startsWith(`${API_PREFIX}/`) ||
@@ -104,18 +115,44 @@ export async function buildApp(
 }
 
 /**
- * The rate-limit bucket: one per bearer token (a hash, never the token itself), so many users
- * behind one address are limited independently. The gateway does not verify the token (the
- * Project Service does), so the bucket is per token, not per verified user: a client that sends a
- * different made-up token on every request gets a fresh bucket each time. Those requests are
- * rejected with 401 upstream, but they are not limited here. Requests without a token fall back
- * to the caller's address, which behind the ALB is the load balancer's (trustProxy is off), so
- * unauthenticated requests then share one bucket.
+ * The rate-limit bucket: one per verified user, so many users behind one address are limited
+ * independently. A missing, invalid or expired token gets the client's address instead, so
+ * inventing tokens never yields a fresh bucket. Verifying here only picks the bucket: the request
+ * is forwarded either way, and the services still make the authentication decision.
  */
-export function rateLimitKey(request: FastifyRequest): string {
-  const auth = request.headers.authorization;
-  if (typeof auth === 'string' && auth.startsWith('Bearer ')) {
-    return `user:${createHash('sha256').update(auth.slice(7)).digest('hex').slice(0, 32)}`;
+export async function rateLimitKey(
+  request: FastifyRequest,
+  authProvider: AuthProvider,
+): Promise<string> {
+  const token = parseBearerToken(request.headers.authorization);
+  if (token) {
+    try {
+      return `user:${(await authProvider.authenticate(token)).userId}`;
+    } catch (err) {
+      if (!(err instanceof AuthenticationError)) throw err;
+    }
   }
   return `ip:${request.ip}`;
+}
+
+/**
+ * X-Forwarded-For is caller-controlled except for the entries our own proxies append. It is read
+ * only when the TCP peer is in TRUSTED_PROXY_CIDRS, and then only TRUSTED_PROXY_HOPS entries back
+ * from the peer: behind CloudFront and the ALB, the entry CloudFront appended (the viewer's
+ * address). Anything a caller put before it is ignored. A connection from anywhere else, such as a
+ * task's public IP if its security group were opened, is keyed by its own TCP address.
+ */
+function trustedProxies(
+  config: GatewayConfig,
+): false | ((address: string, hop: number) => boolean) {
+  if (config.TRUSTED_PROXY_CIDRS.length === 0) return false;
+  const peers = new BlockList();
+  for (const cidr of config.TRUSTED_PROXY_CIDRS) {
+    const [network, prefix] = cidr.split('/');
+    peers.addSubnet(network!, Number(prefix), 'ipv4');
+  }
+  return (address, hop) =>
+    hop === 0
+      ? peers.check(address, isIPv6(address) ? 'ipv6' : 'ipv4')
+      : hop < config.TRUSTED_PROXY_HOPS;
 }

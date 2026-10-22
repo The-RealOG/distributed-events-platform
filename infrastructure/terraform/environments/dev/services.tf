@@ -79,7 +79,13 @@ module "api_gateway" {
     # WebSocket relay to the realtime service (ADR-016); same origin as the SPA via CloudFront.
     REALTIME_SERVICE_URL = "http://realtime-service.${local.discovery_domain}:3005"
     CORS_ORIGINS         = "https://${module.edge.domain_name}"
+    # Client IP for rate limiting: read X-Forwarded-For only from the ALB (in the VPC), two hops
+    # back (CloudFront adds the viewer's IP, the ALB adds CloudFront's).
+    TRUSTED_PROXY_CIDRS = module.networking.vpc_cidr
+    TRUSTED_PROXY_HOPS  = "2"
   })
+  # Verifies tokens only to key the rate limit by user (the services still authenticate).
+  secrets                 = { JWT_SECRET = module.secrets.jwt_secret_arn }
   create_service          = true
   cluster_arn             = module.cluster.cluster_arn
   desired_count           = local.deployed ? var.api_gateway_tasks : 0

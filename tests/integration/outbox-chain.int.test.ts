@@ -69,7 +69,10 @@ beforeAll(async () => {
     AUTH_DEV_LOGIN_ENABLED: 'true',
     DEPLOYMENT_ENVIRONMENT: 'test',
   });
-  gateway = await startService('api-gateway', { PROJECT_SERVICE_URL: projectService.url });
+  gateway = await startService('api-gateway', {
+    PROJECT_SERVICE_URL: projectService.url,
+    JWT_SECRET: 'chain-test-secret-chain-test-secret!!',
+  });
   publisher = await startService('outbox-publisher', publisherEnv());
 });
 

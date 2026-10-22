@@ -60,8 +60,11 @@ The worker services (OP, AS, CI) listen only for probes (`/health`, `/ready`) an
 | `REALTIME_SERVICE_URL`        | unset     | WebSocket relay target. Without it, `/api/realtime` is not routed.                                                                       |
 | `UPSTREAM_CONNECT_TIMEOUT_MS` | `2000`    | A connect failure means the request was never sent: 503 `DEPENDENCY_UNAVAILABLE`.                                                        |
 | `UPSTREAM_REQUEST_TIMEOUT_MS` | `15000`   | Must exceed the Project Service's statement timeout, so its own 503 arrives first. A mutation that times out gets 504 `OUTCOME_UNKNOWN`. |
-| `RATE_LIMIT_MAX`              | `600`     | Requests per client per window, per gateway task. A client is its bearer token (not verified here), else its IP.                         |
+| `RATE_LIMIT_MAX`              | `600`     | Requests per client per window, per gateway task. A client is its verified user, else its IP.                                            |
 | `RATE_LIMIT_WINDOW_MS`        | `60000`   |                                                                                                                                          |
+| `TRUSTED_PROXY_CIDRS`         | empty     | Read `X-Forwarded-For` only from connections in these IPv4 ranges (AWS: the VPC). Empty: never read it.                                  |
+| `TRUSTED_PROXY_HOPS`          | `1`       | Number of proxies in front of the gateway (AWS: CloudFront + ALB = 2).                                                                   |
+| `JWT_SECRET`                  | required  | Same value as the Project Service. Used only to pick the rate-limit bucket.                                                              |
 | `BODY_LIMIT_BYTES`            | `1048576` | Larger request bodies get 413 at the gateway.                                                                                            |
 | `CORS_ORIGINS`                | empty     | Comma-separated browser origins. Empty allows none, which suits same-origin serving through CloudFront.                                  |
 
